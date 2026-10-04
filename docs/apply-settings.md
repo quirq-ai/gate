@@ -26,8 +26,8 @@ git clone -q https://github.com/quirq-ai/gate qq-gate && cd qq-gate && git check
    ours that someone changed on GitHub; writing replaces it, so a bypass added in the UI is
    removed).
 6. Writes the repo rulesets.
-7. Only if an org ruleset is enabled in `settings/github.toml` (none is today, so it stops at 6):
-   asks before running `gh auth refresh -h github.com -s admin:org`, shows the org dry run, asks
+7. Only if an org ruleset is enabled in `settings/github.toml` (today: the two pinned product
+   presubmits): asks before running `gh auth refresh -h github.com -s admin:org`, shows the org dry run, asks
    again, writes, and on exit runs `gh auth refresh -h github.com --remove-scopes admin:org` (unless
    gh already had that scope before). The org run re-plans the repo rulesets too; they show as
    `unchanged` and are not written again.
@@ -110,18 +110,18 @@ run the command again.
 ## Org rulesets (`--org`, needs admin:org)
 
 `[[org_workflows]]` in `settings/github.toml` lists org rulesets that run a workflow from another
-repo on every PR and queue entry, so a PR cannot satisfy them with its own same-named job. All are
-off today; turning one on is a reviewed change to that file, after which the same command applies it.
+repo on every PR and queue entry, so a PR cannot satisfy them with its own same-named job. Turning
+one on or off is a reviewed change to that file, after which the same command applies it.
 
-- `qq-xo-space-presubmit-pinned` and `qq-innernet-presubmit-pinned`: each product repo's presubmit,
+- `qq-xo-space-presubmit-pinned` and `qq-innernet-presubmit-pinned` (on): each product repo's presubmit,
   run from infra-config's `.github/workflows/qq-required-<repo>-presubmit.yml` at a pinned commit
   (`sha`), so neither a PR nor a dependency roll can change the workflow that judges it. rollers
-  auto-lands only into a repo that has one. They wait on infra-config's files dropping
-  `cancel-in-progress`; then `sha` moves and they are enabled. The pin fixes the workflow file, not
+  auto-lands only into a repo that has one. Pinned at infra-config `eaa2c88` (#19), whose files
+  dropped `cancel-in-progress`; both pass the checks below on a fresh clone. The pin fixes the workflow file, not
   the code it runs: owner review of tests and scripts is V0-GAT-03 (waits on ORG-02 owners).
-- `qq-toolchains-promotion-gate`: toolchains' `promotion-gate.yml`. Waits on that file dropping
-  `cancel-in-progress` and setting `timeout-minutes` within the queue's 40.
-- `qq-drift`: infra-config's `qq-drift.yml` in the product repos. Waits on that file only checking
+- `qq-toolchains-promotion-gate` (off): toolchains' `promotion-gate.yml`. It dropped
+  `cancel-in-progress` (toolchains #12); it waits on `timeout-minutes` coming down from 45 to 40 or less.
+- `qq-drift` (off): infra-config's `qq-drift.yml` in the product repos. Waits on that file only checking
   the default branch against a pinned config.
 
 `verify` and `apply --org` both read each enabled entry's file (from the fresh clone, at its `sha`,
