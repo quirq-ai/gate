@@ -183,7 +183,7 @@ can_remove_scope() {  # gh 2.27 and older have no --remove-scopes
   help=$(gh auth refresh --help 2>&1 || true)
   case "$help" in *--remove-scopes*) return 0 ;; *) return 1 ;; esac
 }
-drop_scope() {
+drop_scope() {  # drop_scope [trap]: as the EXIT trap, a failure must change the exit code itself
   [ -f "$added_mark" ] || return 0
   say "Removing the admin:org scope this script added to gh"
   if can_remove_scope && gh auth refresh -h github.com --remove-scopes admin:org; then
@@ -192,6 +192,7 @@ drop_scope() {
     echo "Could not remove admin:org. Upgrade gh (on a Mac: brew upgrade gh), then run:"
     echo "  ( gh auth refresh -h github.com --remove-scopes admin:org && rm -f $added_mark )"
     status=1
+    if [ "${1:-}" = trap ]; then exit 1; fi
   fi
 }
 if [ -f "$added_mark" ]; then
@@ -225,7 +226,7 @@ ask "$enabled org ruleset(s) are enabled. Applying them needs the admin:org scop
   || cancel "the org step was not run; the repo rulesets above are applied"
 if [ "$had_admin_org" = no ]; then
   : > "$added_mark"
-  trap drop_scope EXIT
+  trap 'drop_scope trap' EXIT
   gh auth refresh -h github.com -s admin:org
 fi
 # The org run plans the repo rulesets again (they show as unchanged) and asks again: a yes for the
