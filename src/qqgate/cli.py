@@ -115,7 +115,8 @@ def cmd_settings(args) -> int:
         if ready[p.name]:
             print(f"skip     {p.name}: not ready")
             continue
-        for line in mod.existing_protection(s["org"]["owner"], p.name, {rs["name"] for rs in p.rulesets}, token):
+        for line in mod.existing_protection(s["org"]["owner"], p.name,
+                                            {rs["name"] for rs in p.rulesets} | {s["org_workflows"]["ruleset"]}, token):
             print(f"WARNING  {p.name}: {line}")
         for line in mod.apply(s["org"]["owner"], p.name, list(p.rulesets), token, write=args.yes):
             print(line)
