@@ -11,8 +11,11 @@ export a token: qqgate asks `gh auth token` itself, after the step that runs inf
 has exited.
 
 ```sh
-git clone -q https://github.com/quirq-ai/gate qq-gate && cd qq-gate && git checkout -q <COMMIT> && scripts/apply.sh
+{ [ -d qq-gate ] || git clone -q https://github.com/quirq-ai/gate qq-gate; } && cd qq-gate && git fetch -q origin && git checkout -q <COMMIT> && scripts/apply.sh
 ```
+
+Run it from the same directory every time: the first run clones `qq-gate`, a re-run reuses it
+(fetching and checking out the commit again), so the same line works for both.
 
 [`scripts/apply.sh`](../scripts/apply.sh) then:
 
@@ -20,17 +23,23 @@ git clone -q https://github.com/quirq-ai/gate qq-gate && cd qq-gate && git check
 2. Makes `.venv` from `apply-requirements.txt` (hashed, fully pinned, wheels only).
 3. Clones infra-config at the commit `pins.toml` names, and every repo in `settings/github.toml`
    fresh into `.qq/repos` (re-running clones again, so nothing is stale).
-4. Runs `settings verify` (which repos are ready) and a dry run (GETs only), and prints them.
+4. Runs `settings verify` (which repos are ready), cloning again any repo that moved since its
+   clone, then a dry run (GETs only), and prints them.
 5. Asks you to type `yes` before writing. It asks separately, first, if the dry run printed a
    `WARNING` (other protection already on a repo, see below) or a ruleset marked `differs` (one of
-   ours that someone changed on GitHub; writing replaces it, so a bypass added in the UI is
-   removed).
-6. Writes the repo rulesets.
+   ours that is not what settings say: settings changed, or someone edited it on GitHub; writing
+   replaces it, so a bypass added in the UI is removed).
+6. Writes the repo rulesets. A repo that moved between its clone and the write is skipped by
+   qqgate; the script clones it again and offers just that repo again (dry run and `yes`), up to
+   three rounds, so you do not start over.
 7. Only if an org ruleset is enabled in `settings/github.toml` (today: the two pinned product
    presubmits and toolchains' promotion gate): asks before running `gh auth refresh -h github.com -s admin:org`, shows the org dry run, asks
    again, writes, and on exit runs `gh auth refresh -h github.com --remove-scopes admin:org` (unless
-   gh already had that scope before). The org run re-plans the repo rulesets too; they show as
-   `unchanged` and are not written again.
+   gh already had that scope before; with the scope already there it does not ask gh at all). The
+   org run re-plans the repo rulesets too; they show as `unchanged` and are not written again. Once
+   the org rulesets of a commit are applied, the script records that commit in `.apply-org-done`,
+   and a re-run of the same commit skips the org step and its browser prompts, without checking the
+   org rulesets for edits made on GitHub since (delete the file to run it again).
 
 Nothing is written before a `yes`. Exit 0 means everything is applied; 1 means something was not
 ready, skipped or refused, or you answered something other than `yes` (the output says what; fix it
@@ -78,17 +87,23 @@ is no less safe.
 - `qq-release-refs-branches` and `qq-release-refs-tags`: `lkgr` and `channels/**` cannot be created,
   moved or deleted except by the release executor. Its identity is not decided yet, so today nobody
   can write them.
-- `qq-reserved-tags`, in every repo: nobody may create, move or delete a tag named `main` (a tag
-  of that name satisfies a workflow's `github.ref_name == 'main'` test).
+- `qq-reserved-tags`, in every repo: nobody may create, move or delete a tag named `main` or like
+  any repo's state branch (`ledger`, `perf-data`, `release-state`, `results`, `tree-status`). A tag
+  named `main` satisfies a workflow's `github.ref_name == 'main'` test, and a tag wins over a branch
+  of its name on a short-name `git fetch`. `lkgr` and `channels/**` tags are already locked to the
+  release executor by `qq-release-refs-tags`.
 - `qq-state-branches`, where `state_branches` names some (gardener `ledger` and `tree-status`,
-  release `release-state`, perf `perf-data`): those branches cannot be deleted or force-pushed.
+  release `release-state`, perf `perf-data`, test-pipelines `results`): those branches cannot be deleted or force-pushed.
   Their bots still push to them normally. Later, once the release executor exists, `release-state`
   should also be writable only by it (TODO(suraj) in `settings/github.toml`).
-- `qq-dependabot-branches`, in xo-space and innernet: only Dependabot may push to or force-push
-  `dependabot/**`, so the commit rollers checked is the commit that lands. The bypass names the
-  Dependabot app by id 29110, the id commonly given for it; it could not be checked from here. If a
-  Dependabot update is refused, read the app id with `gh api /apps/dependabot --jq .id` and change
-  `actor_id` in `settings/github.toml`.
+- Not in this apply: `qq-dependabot-branches` (only Dependabot may push to or force-push
+  `dependabot/**` in xo-space and innernet). It is built only for repos with
+  `dependabot_branches = true`, which is false for both today. Its bypass names the Dependabot app
+  by id 29110, which could not be checked from here (`gh api /apps/dependabot --jq .id` shows the
+  real one), and it is what lets rollers auto-land Dependabot rolls, which stay off until rollers'
+  ROL-R6 clears. Turning it on, with the id checked, is a reviewed gate PR. No ruleset on `~ALL` or
+  `refs/heads/**` may carry both `update` and `non_fast_forward`, which would satisfy rollers'
+  land check the same way.
 
 ## When `verify` refuses a repo
 
@@ -107,7 +122,7 @@ is no less safe.
 
 Status (from `settings verify` on fresh clones, 2026-10-04 14:05 UTC): every repo ready. `verify`
 prints each repo's commit, so a repo that moves between the clone and the run shows as not ready;
-run the command again.
+the script clones it again.
 
 ## Org rulesets (`--org`, needs admin:org)
 
@@ -121,10 +136,14 @@ one on or off is a reviewed change to that file, after which the same command ap
   auto-lands only into a repo that has one. Pinned at infra-config `eaa2c88` (#19), whose files
   dropped `cancel-in-progress`; both pass the checks below on a fresh clone. The pin fixes the workflow file, not
   the code it runs: owner review of tests and scripts is V0-GAT-03 (waits on ORG-02 owners).
-- `qq-toolchains-promotion-gate` (on): toolchains' `promotion-gate.yml` from its `main`. Since
-  toolchains #12 and #13 (eb71c8e) it has no `cancel-in-progress` and a 35-minute timeout.
+- `qq-toolchains-promotion-gate` (on): toolchains' `promotion-gate.yml`, pinned at `eb71c8e`
+  (toolchains #13: no `cancel-in-progress`, a 35-minute timeout). The pin fixes the workflow file;
+  the gate tools it runs (`tools/gate.py`) still come from toolchains `main`, so owner review there
+  (ORG-02) is still needed.
 - `qq-drift` (off): infra-config's `qq-drift.yml` in the product repos. Waits on that file only checking
-  the default branch against a pinned config.
+  the default branch against a pinned config, and on infra-config PR 24 (today its check-delivered
+  step would fail every xo-space PR on rollers' `qq-roll-land.yml`); then it is pinned and enabled
+  in a reviewed gate PR.
 
 `verify` (from the fresh clone, at its `sha`) and `apply --org` (again, through the API) both read
 each enabled entry's file and refuse it unless it runs on `merge_group` and a pull request event,

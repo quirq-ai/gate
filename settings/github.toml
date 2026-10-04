@@ -28,7 +28,8 @@ bypass_integration_ids = []
 
 [reserved_tags]
 # Tags named like a branch. A tag called `main` satisfies a workflow's `github.ref_name == 'main'`
-# test, so in every repo nobody may create, move or delete one (perf audit).
+# test, so in every repo nobody may create, move or delete one (perf audit). Every repo's
+# state_branches are reserved too: a tag wins over a branch of its name on a short-name fetch.
 ruleset = "qq-reserved-tags"
 names = ["main"]
 
@@ -69,6 +70,9 @@ enabled = true
 repository = "toolchains"
 path = ".github/workflows/promotion-gate.yml"
 ref = "refs/heads/main"
+# The file GitHub runs, pinned (gate re-check D-2). Its tools still come from toolchains main
+# (gate.py), so owner review there (ORG-02) is still needed. Moving it is a reviewed gate PR.
+sha = "eb71c8e54eae5ea4a2d27096f1f197dfe91bd8f2"   # toolchains main at #13 (no concurrency, 35 min)
 targets = ["toolchains"]
 
 [[org_workflows]]
@@ -110,13 +114,19 @@ kind = "product"
 # (through pytest; xo-space #214 audit), and V0-ONB-01 deletes tests.yml, which a required `tests`
 # would block.
 transitional_checks = []
-dependabot_branches = true
+# Deferred (gate re-check D-1): the Dependabot app id below cannot be verified from here, and
+# rollers keeps Dependabot rolls from auto-landing until its ROL-R6 clears, which these rules would
+# allow. Turning them on is this one line, in a reviewed gate PR.
+dependabot_branches = false
 
 [[repo]]
 name = "innernet"
 kind = "product"
 transitional_checks = []
-dependabot_branches = true
+# Deferred (gate re-check D-1): the Dependabot app id below cannot be verified from here, and
+# rollers keeps Dependabot rolls from auto-landing until its ROL-R6 clears, which these rules would
+# allow. Turning them on is this one line, in a reviewed gate PR.
+dependabot_branches = false
 
 # --- infra repos (hand-written presubmits, read from each repo's workflows on 2026-10-04) --------
 
@@ -146,6 +156,8 @@ checks = ["presubmit"]
 name = "test-pipelines"
 kind = "infra"
 checks = ["presubmit"]
+# scorecard.yml fetches `results`, commits on top and pushes without force (gate re-check D-6).
+state_branches = ["results"]
 
 [[repo]]
 name = "gate"

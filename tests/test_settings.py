@@ -220,7 +220,8 @@ def test_org_rulesets_run_a_workflow_from_another_repos_main(s, cfg):
     rs = github.org_ruleset(tc, ["toolchains"], repository_id=42)
     assert rs["conditions"]["repository_name"]["include"] == ["toolchains"]
     assert rs["rules"][0]["parameters"]["workflows"][0] == {
-        "path": ".github/workflows/promotion-gate.yml", "repository_id": 42, "ref": "refs/heads/main"}
+        "path": ".github/workflows/promotion-gate.yml", "repository_id": 42, "ref": "refs/heads/main",
+        "sha": tc["sha"]}   # re-check D-2: the file GitHub runs is pinned too
 
 
 def test_pinned_org_workflow_carries_its_sha(s, cfg):
@@ -231,8 +232,8 @@ def test_pinned_org_workflow_carries_its_sha(s, cfg):
         assert w["targets"] == [repo] and w["repository"] == "infra-config" and repo in w["path"]
         rs = github.org_ruleset({**w, "sha": "a" * 40}, [repo], repository_id=7)
         assert rs["rules"][0]["parameters"]["workflows"][0]["sha"] == "a" * 40
-    assert "sha" not in github.org_ruleset(org["qq-toolchains-promotion-gate"], ["toolchains"], 1)[
-        "rules"][0]["parameters"]["workflows"][0]
+    drift = {k: v for k, v in org["qq-drift"].items() if k != "sha"}
+    assert "sha" not in github.org_ruleset(drift, ["xo-space"], 1)["rules"][0]["parameters"]["workflows"][0]
 
 
 @pytest.mark.parametrize("field,value,why", [
@@ -734,12 +735,19 @@ def test_every_repo_reserves_the_main_tag(s, cfg, config_root):
     for plan in plans_by_name(s, cfg, config_root).values():
         rs = {r["name"]: r for r in plan.rulesets}["qq-reserved-tags"]
         assert rs["target"] == "tag" and rs["bypass_actors"] == []
-        assert rs["conditions"]["ref_name"]["include"] == ["refs/tags/main"]
+        assert rs["conditions"]["ref_name"]["include"] == [f"refs/tags/{t}" for t in (
+            "main", "ledger", "perf-data", "release-state", "results", "tree-status")]
         assert {r["type"] for r in rs["rules"]} == {"creation", "update", "deletion", "non_fast_forward"}
 
 
 def test_only_dependabot_changes_its_branches_in_product_repos(s, cfg, config_root):
-    """Re-check SF-2: rollers lands a Dependabot PR only if its branch has update and non_fast_forward."""
+    """Re-check SF-2: rollers lands a Dependabot PR only if its branch has update and non_fast_forward.
+    Deferred in settings (re-check D-1); the ruleset is built once a product repo turns it on."""
+    plans = plans_by_name(s, cfg, config_root)
+    assert all("qq-dependabot-branches" not in {r["name"] for r in p.rulesets} for p in plans.values())
+    for r in s["repo"]:
+        if r["kind"] == "product":
+            r["dependabot_branches"] = True
     plans = plans_by_name(s, cfg, config_root)
     for repo in ("xo-space", "innernet"):
         rs = {r["name"]: r for r in plans[repo].rulesets}["qq-dependabot-branches"]
@@ -750,8 +758,10 @@ def test_only_dependabot_changes_its_branches_in_product_repos(s, cfg, config_ro
 
 
 def test_perf_data_cannot_be_deleted_or_rewritten(s, cfg, config_root):
-    rs = {r["name"]: r for r in plans_by_name(s, cfg, config_root)["perf"].rulesets}["qq-state-branches"]
-    assert rs["conditions"]["ref_name"]["include"] == ["refs/heads/perf-data"]
+    plans = plans_by_name(s, cfg, config_root)
+    for repo, branch in (("perf", "perf-data"), ("test-pipelines", "results")):
+        rs = {r["name"]: r for r in plans[repo].rulesets}["qq-state-branches"]
+        assert rs["conditions"]["ref_name"]["include"] == [f"refs/heads/{branch}"]
 
 
 def test_yes_refuses_warnings_and_overwrites_unless_asked(apply_env, config_root, tmp_path, capsys):
