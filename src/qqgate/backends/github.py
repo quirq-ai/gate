@@ -136,7 +136,7 @@ def _status_checks_rule(names) -> dict:
 
 def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_review: bool = False,
              group_size: int = 5, state_branches: tuple[str, ...] = (),
-             dependabot_branches: bool = False) -> list[dict]:
+             dependabot_branches: bool = False, release_tags: tuple[str, ...] = ()) -> list[dict]:
     """V0-ORG-03: the repository rulesets (REST: POST /repos/{o}/{r}/rulesets) for one repo."""
     main, refs = settings["main"], settings["release_refs"]
     method = main["merge_method"].upper()
@@ -185,7 +185,7 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
                   "rules": [{"type": "deletion"}, {"type": "non_fast_forward"}]}]
     # A tag named like a branch (`main`) satisfies a workflow's `github.ref_name == 'main'` test, and
     # wins over a state branch of its name on a short-name `git fetch` (release audit), so nobody may
-    # create, move or delete a tag named like `main` or any repo's state branch. (lkgr and channels/**
+    # create, move or delete a tag named like `main` or any repo's state branch. (lkgr and channels/**/*
     # tags are the release executor's, in the release-refs ruleset.)
     tags = settings["reserved_tags"]
     names = list(tags["names"]) + sorted({b for r in settings.get("repo", []) for b in r.get("state_branches", ())}
@@ -193,6 +193,14 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
     state.append({"name": tags["ruleset"], "target": "tag", "enforcement": "active", "bypass_actors": [],
                   "conditions": {"ref_name": {"include": [f"refs/tags/{t}" for t in names], "exclude": []}},
                   "rules": lock})
+    if release_tags:
+        # Tags a pin trusts (depot: a version-only pin installs tag v<version>, and a git: digest
+        # must be on a branch or tag): nobody but the release executor may create, move or delete
+        # them, the same bypass as lkgr and channels/**/*.
+        state.append({"name": "qq-release-tags", "target": "tag", "enforcement": "active", "bypass_actors": bypass,
+                      "conditions": {"ref_name": {"include": [f"refs/tags/{t}" for t in release_tags],
+                                                  "exclude": []}},
+                      "rules": lock})
     if dependabot_branches:
         # rollers lands a Dependabot PR only if nobody but Dependabot can change its branch after the
         # check (its land check reads `update` and `non_fast_forward` on the PR branch).

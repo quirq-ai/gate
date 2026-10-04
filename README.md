@@ -99,7 +99,7 @@ is one sample.
 | --- | --- | --- |
 | bootstrap | #1 | merged |
 | V0-GAT-01 | #2 | merged; live demo waits on V0-ORG-03, V0-ONB-01/02 |
-| V0-ORG-03 | #3, #5, #9, #10, #13, #14 | merged; waits on suraj to run `scripts/apply.sh` ([docs/apply-settings.md](docs/apply-settings.md)). The org rulesets for the pinned product presubmits (infra-config eaa2c88) and toolchains' promotion gate (eb71c8e) are on; qq-drift and the Dependabot branch rules wait |
+| V0-ORG-03 | #3, #5, #9, #10, #13, #14, #15 | merged; waits on suraj to run `scripts/apply.sh` ([docs/apply-settings.md](docs/apply-settings.md)). The org rulesets for the pinned product presubmits (infra-config eaa2c88) and toolchains' promotion gate (eb71c8e) are on; qq-drift and the Dependabot branch rules wait |
 | V0-GAT-02 | #4 | merged |
 | V0-GAT-03 | | waits on V0-ORG-02 (suraj's owners) |
 | V0-GAT-04 | #6 | merged; the sink reads QQ_QUEUED_AT (test-pipelines 1e3ddb1). Numbers appear once infra-config adds the timing step and the queue runs |

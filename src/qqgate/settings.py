@@ -36,7 +36,23 @@ def load_settings(backend: str, path: Path | None = None) -> dict:
     if not path.is_file():
         raise GateError(f"no settings for backend {backend!r} ({path})")
     with path.open("rb") as f:
-        return tomllib.load(f)
+        data = tomllib.load(f)
+    refs = data.get("release_refs", {})
+    for kind in ("branches", "tags"):
+        bad = [p for p in refs.get(kind, []) if not _matches_nested(p)]
+        if bad:
+            raise GateError(f"release_refs.{kind}: {bad!r} {_NESTED}")
+    return data
+
+
+# GitHub matches ruleset ref patterns with fnmatch and FNM_PATHNAME (its ruleset docs), where a `**` that
+# is not followed by `/` matches one path level only: `refs/tags/**` misses `refs/tags/x/y` (gate #15
+# review). `**/*` matches every level.
+_NESTED = "uses a `**` not followed by `/`, which matches one level only; write `**/*` for every level"
+
+
+def _matches_nested(pattern: str) -> bool:
+    return not re.search(r"\*\*(?!/)", pattern)
 
 
 def _repos_in_config(cfg: dict) -> tuple[set[str], set[str]]:
@@ -88,11 +104,18 @@ def repo_options(r: dict) -> dict:
             and b not in ("main", "HEAD") and not b.startswith("refs/") for b in state):
         raise GateError(f"{r['name']}: state_branches must be distinct plain branch names (no patterns, "
                         f"refs/ or HEAD, not main), not {state!r}")
+    tags = r.get("release_tags", [])
+    if not isinstance(tags, list) or len(set(tags)) != len(tags) or not all(
+            isinstance(t, str) and re.fullmatch(r"[A-Za-z0-9._*-]+(/[A-Za-z0-9._*-]+)*", t)
+            and not t.startswith("refs/") for t in tags):
+        raise GateError(f"{r['name']}: release_tags must be distinct tag name patterns (no refs/), not {tags!r}")
+    if not all(_matches_nested(t) for t in tags):
+        raise GateError(f"{r['name']}: release_tags {tags!r} {_NESTED}")
     bot = r.get("dependabot_branches", False)
     if not isinstance(bot, bool):
         raise GateError(f"{r['name']}: dependabot_branches must be true or false, not {bot!r}")
     return {"code_owner_review": owners, "group_size": size, "state_branches": tuple(state),
-            "dependabot_branches": bot}
+            "dependabot_branches": bot, "release_tags": tuple(tags)}
 
 
 @dataclass

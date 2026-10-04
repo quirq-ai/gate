@@ -50,7 +50,7 @@ def test_main_ruleset_forces_the_queue_and_blocks_direct_push(s, cfg, config_roo
 
 def test_release_refs_are_locked_to_the_release_executor(s, cfg, config_root):
     _, branches, tags = plans_by_name(s, cfg, config_root)["gate"].rulesets[:3]
-    assert branches["conditions"]["ref_name"]["include"] == ["refs/heads/lkgr", "refs/heads/channels/**"]
+    assert branches["conditions"]["ref_name"]["include"] == ["refs/heads/lkgr", "refs/heads/channels/**/*"]
     assert tags["target"] == "tag"
     for rs in (branches, tags):
         assert {r["type"] for r in rs["rules"]} == {"creation", "update", "deletion", "non_fast_forward"}
@@ -823,3 +823,28 @@ def test_verify_runs_infra_config_code_only_in_the_child(apply_env, config_root,
     args[1] = "verify"
     assert main(args) == 0
     assert "ready     sync" in capsys.readouterr().out
+
+
+def test_depot_tags_that_pins_trust_are_locked(s, cfg, config_root):
+    """depot pins trust its tags (a version-only pin installs tag v<version>; a git: digest must be
+    on a branch or tag), so nobody but the release executor may create, move or delete one."""
+    plans = plans_by_name(s, cfg, config_root)
+    rs = {r["name"]: r for r in plans["depot"].rulesets}["qq-release-tags"]
+    assert rs["target"] == "tag" and rs["conditions"]["ref_name"]["include"] == ["refs/tags/**/*"]
+    assert {r["type"] for r in rs["rules"]} == {"creation", "update", "deletion", "non_fast_forward"}
+    assert rs["bypass_actors"] == []   # the release executor, once it exists (release_refs)
+    assert all("qq-release-tags" not in {r["name"] for r in p.rulesets} for n, p in plans.items() if n != "depot")
+
+
+@pytest.mark.parametrize("bad", [["refs/tags/v*"], ["v*", "v*"], "v*", ["a b"], ["**"], ["v/**"]])
+def test_release_tags_are_plain_patterns(bad):
+    with pytest.raises(GateError, match="release_tags"):
+        settings.repo_options({"name": "x", "release_tags": bad})
+
+
+def test_release_refs_patterns_reach_nested_refs(tmp_path):
+    """GitHub's `**` without a following `/` matches one level only (FNM_PATHNAME)."""
+    p = tmp_path / "github.toml"
+    p.write_text('[release_refs]\nbranches = ["lkgr"]\ntags = ["channels/**"]\n')
+    with pytest.raises(GateError, match="release_refs.tags"):
+        settings.load_settings("github", p)
