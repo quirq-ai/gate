@@ -1,0 +1,35 @@
+# V0-GAT-04: stamp a gate run with its queue-entry time, for the scorecard's gate p50/p90.
+# Use it in a merge_group job before the result sink, pinned by commit:
+#
+#   permissions: { contents: read, pull-requests: read }   # on the job
+#   - uses: quirq-ai/gate/timing@<commit>
+#     if: github.event_name == 'merge_group'
+#   - uses: quirq-ai/test-pipelines/sink@<commit>
+#
+# It exports QQ_QUEUED_AT (RFC 3339 UTC), which the sink records as Run.queued_at; only an exact
+# time from the PR timeline is exported. Use it only in the gate job that finishes last. It never
+# fails the job: a gate run without a queue time is still a gate run, just one the scorecard cannot time.
+name: qq gate timing
+description: Export QQ_QUEUED_AT, when this merge-queue run's change entered the queue.
+inputs:
+  token:
+    description: "Token to read the PR timeline (needs pull-requests: read)."
+    required: false
+    default: ${{ github.token }}
+outputs:
+  queued-at:
+    description: The queue-entry time, RFC 3339 UTC, or empty if unknown.
+    value: ${{ steps.t.outputs.queued-at }}
+runs:
+  using: composite
+  steps:
+    - id: t
+      shell: bash
+      env:
+        QQ_GITHUB_TOKEN: ${{ inputs.token }}
+      run: |
+        set -uo pipefail
+        venv="$RUNNER_TEMP/qqgate-venv"
+        python3 -m venv "$venv" && "$venv/bin/python" -m pip install --quiet --disable-pip-version-check "$GITHUB_ACTION_PATH/.." \
+          && at=$("$venv/bin/qqgate" queued-at) && echo "queued-at=$at" >> "$GITHUB_OUTPUT" \
+          || echo "::warning::qq gate timing: no queue-entry time for this run; the scorecard will not time it"
