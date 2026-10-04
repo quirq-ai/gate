@@ -49,7 +49,11 @@ look at them on GitHub. The repo rulesets are always checked.
 7. Only if an org ruleset is enabled in `settings/github.toml` (today none: quirq-ai is on GitHub
    Free, which has no org rulesets, so the run never asks for admin:org): asks before running `gh auth refresh -h github.com -s admin:org`, shows the org dry run, asks
    again, writes, and on exit runs `gh auth refresh -h github.com --remove-scopes admin:org` (unless
-   gh already had that scope before; with the scope already there it does not ask gh at all). The
+   gh already had that scope before; with the scope already there it does not ask gh at all). Before
+   asking for the scope it checks that the org's plan can run them and that your gh can remove a
+   scope again (`--remove-scopes`, newer than gh 2.27); if not, it skips the step and adds nothing.
+   While a scope it added is still on gh, `~/qq-apply/.qq-gate-admin-org-added` exists, and the next
+   run removes the scope first, or prints the one line that does. The
    org run re-plans the repo rulesets too; they show as `unchanged` and are not written again. Once
    the org rulesets of a commit are applied, the script records that commit in
    `~/qq-apply/.qq-gate-org-done`, and a re-run of the same commit skips the org step and its browser prompts,

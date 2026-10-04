@@ -175,6 +175,28 @@ phase "the repo rulesets"
 
 # 6. Org rulesets, only when settings/github.toml enables one (they need admin:org). A re-run of
 #    a commit whose org rulesets an earlier run applied skips this step and its browser prompts.
+# Outside the clone, which every run replaces: present while a run of this script has added admin:org
+# to gh and not yet removed it (a run that stopped half way, or a gh too old to remove it).
+added_mark="$(cd .. && pwd)/.qq-gate-admin-org-added"
+can_remove_scope() {  # gh 2.27 and older have no --remove-scopes
+  local help
+  help=$(gh auth refresh --help 2>&1 || true)
+  case "$help" in *--remove-scopes*) return 0 ;; *) return 1 ;; esac
+}
+drop_scope() {
+  [ -f "$added_mark" ] || return 0
+  say "Removing the admin:org scope this script added to gh"
+  if can_remove_scope && gh auth refresh -h github.com --remove-scopes admin:org; then
+    rm -f "$added_mark"
+  else
+    echo "Could not remove admin:org. Upgrade gh (on a Mac: brew upgrade gh), then run:"
+    echo "  ( gh auth refresh -h github.com --remove-scopes admin:org && rm -f $added_mark )"
+    status=1
+  fi
+}
+if [ -f "$added_mark" ]; then
+  drop_scope   # an earlier run left it
+fi
 enabled=$("$py" -c "import tomllib; print(sum(1 for w in tomllib.load(open('settings/github.toml', 'rb')).get('org_workflows', []) if w.get('enabled')))")
 if [ "$enabled" = 0 ]; then
   finish "No org ruleset is enabled in settings/github.toml, so there is no admin:org step. Done."
@@ -184,19 +206,25 @@ done_mark="$(cd .. && pwd)/.qq-gate-org-done"
 if [ "$(cat "$done_mark" 2>/dev/null || true)" = "$(git rev-parse HEAD)" ]; then
   finish "The org rulesets of this commit were applied by an earlier run, so the admin:org step is skipped. It did not check them on GitHub: if anything was changed or deleted there, run  rm -f $done_mark  and then: $again_cmd"
 fi
-ask "$enabled org ruleset(s) are enabled. Applying them needs the admin:org scope: gh asks you to grant it next, and this script removes it again at the end. Go on to the org rulesets?" "go on" \
-  || cancel "the org step was not run; the repo rulesets above are applied"
+# Every org ruleset here uses "Require workflows to pass before merging", which GitHub offers on
+# Enterprise Cloud only (Free has no org rulesets at all). Checked before asking for any scope.
+plan=$(gh api "orgs/$owner" --jq '.plan.name // ""' 2>/dev/null || true)
+case "$plan" in
+  ""|enterprise*) ;;   # unknown: qqgate's first GET refuses safely, before any write
+  *) say "The org is on GitHub's '$plan' plan, which cannot run the $enabled enabled org ruleset(s) (they need Enterprise Cloud), so the admin:org step is skipped. Turn them off in settings/github.toml."
+     status=1; finish "" ;;
+esac
 gh_status=$(gh auth status -h github.com 2>&1 || true)
 had_admin_org=no
 case "$gh_status" in *admin:org*) had_admin_org=yes ;; esac
-drop_scope() {
-  if [ "$had_admin_org" = no ]; then
-    say "Removing the admin:org scope from gh again"
-    gh auth refresh -h github.com --remove-scopes admin:org \
-      || echo "Could not remove admin:org; run:  gh auth refresh -h github.com --remove-scopes admin:org"
-  fi
-}
+if [ "$had_admin_org" = no ] && ! can_remove_scope; then
+  say "Your $(gh --version | head -1) cannot remove a scope again, so the admin:org step is skipped (it never adds a scope it cannot remove). Upgrade gh (on a Mac: brew upgrade gh), then run this again."
+  status=1; finish ""
+fi
+ask "$enabled org ruleset(s) are enabled. Applying them needs the admin:org scope: gh asks you to grant it next, and this script removes it again at the end. Go on to the org rulesets?" "go on" \
+  || cancel "the org step was not run; the repo rulesets above are applied"
 if [ "$had_admin_org" = no ]; then
+  : > "$added_mark"
   trap drop_scope EXIT
   gh auth refresh -h github.com -s admin:org
 fi
