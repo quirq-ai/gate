@@ -129,12 +129,6 @@ term = "*"
 why = "Launcher for qq's own qqresults from source (audit S8): starts qq's interpreter and says why nothing is installed."
 
 [[allow]]
-repo = "test-pipelines"
-path = "src/qqresults/failures.py"
-term = "java"
-why = "Comment listing ordinary failure texts (a heap OOM) the security classifier must not match; not a target."
-
-[[allow]]
 repo = "depot"
 path = "src/qqdepot/locks/pypi.in"
 term = "*"
@@ -145,9 +139,3 @@ repo = "depot"
 path = "src/qqdepot/locks/pypi.txt"
 term = "*"
 why = "Generated hash lock of qq's own PyPI dependencies (depot #15); its header names the tool that wrote it."
-
-[[allow]]
-repo = "test-pipelines"
-path = "src/qqresults/retry.py"
-term = "pytest"
-why = "Docstring example of how a JUnit reporter records an exception in a test body; the logic reads JUnit only."
