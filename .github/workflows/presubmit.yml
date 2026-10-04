@@ -46,9 +46,21 @@ jobs:
           done
       - name: rulesets as code build for every repo (V0-ORG-03)
         run: qqgate settings plan --config .qq/infra-config > /dev/null
+      - name: this repo's shipped code is agnostic (V0-GAT-02)
+        run: qqgate guard --repo gate --github .
+      - name: a planted pytest string in a core repo fails the guard (V0-GAT-02 done-when)
+        run: |
+          commit=$(python -c "import tomllib; print(tomllib.load(open('pins.toml', 'rb'))['sync']['commit'])")
+          git init --quiet .qq/sync && git -C .qq/sync fetch --quiet --depth 1 https://github.com/quirq-ai/sync "$commit"
+          git -C .qq/sync checkout --quiet FETCH_HEAD
+          qqgate guard --repo sync .qq/sync
+          echo 'RUNNER = "pytest"' >> .qq/sync/src/qqsync/__init__.py
+          rc=0; qqgate guard --repo sync .qq/sync || rc=$?
+          [ "$rc" -eq 1 ] || { echo "::error::the planted pytest string was not caught (exit $rc)"; exit 1; }
   # Not a required check: it reads other repos' default branches, which change outside this repo.
   # It goes red when a required check listed in settings/github.toml stops running on pull_request
   # and merge_group in an infra repo, so the settings get fixed before anyone applies them.
+  # It also runs the agnosticism guard over every core repo's default branch.
   settings-drift:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -74,6 +86,13 @@ jobs:
           for r in $(python -c "import tomllib; print(' '.join(r['name'] for r in tomllib.load(open('settings/github.toml','rb'))['repo']))"); do
             git clone --quiet --depth 1 "https://github.com/quirq-ai/$r" ".qq/repos/$r"
           done
+      - name: core repos are agnostic (V0-GAT-02; each repo makes it required in its own presubmit)
+        run: |
+          for r in $(python -c "import tomllib; print(' '.join(tomllib.load(open('guard/terms.toml','rb'))['core']))"); do
+            [ "$r" = gate ] && continue
+            qqgate guard --repo "$r" --github ".qq/repos/$r" || failed="$failed $r"
+          done
+          [ -z "$failed" ] || { echo "::error::not agnostic:$failed"; exit 1; }
       - name: which repos are safe to apply today
         run: |
           infra=$(python -c "import tomllib; print(' '.join('--repo ' + r['name'] for r in tomllib.load(open('settings/github.toml','rb'))['repo'] if r['kind'] == 'infra'))")

@@ -1,0 +1,88 @@
+# V0-GAT-02: the agnosticism guard (plan §5.1). No core file names a language, build tool or deploy
+# target; anything language-specific lives in a recipes adapter, found through one loader.
+# Changing this file is a policy change (verification surface), so it needs suraj.
+
+# Core repos (plan §5.1). The guard runs on their shipped code, not on tests, docs or CI.
+core = ["depot", "sync", "gate", "test-pipelines", "gardener", "release"]
+scan = ["src/**", "bin/**", "tools/**"]
+skip = ["**/__pycache__/**", "**/*.egg-info/**", "**/*.md"]
+
+
+# Matched as whole words, ignoring case. TODO(expert): grow these lists as kinds are added.
+[terms]
+language = ["python", "python3", "cpython", "javascript", "typescript", "golang", "rust", "java",
+            "kotlin", "ruby", "php", "csharp", "nodejs", "node.js", "deno"]
+build_tool = ["pytest", "unittest", "pip", "pipx", "poetry", "setuptools", "compileall", "tox", "nox",
+              "hypothesis", "npm", "npx", "pnpm", "yarn", "webpack", "vite", "next.js", "nextjs", "tsc",
+              "jest", "vitest", "mocha", "fast-check", "cargo", "gradle", "maven", "bazel", "cmake", "gcc",
+              "clang"]
+# Not terms: JUnit XML is qq's result interchange format (plan §5.2, ResultSink), not a build tool.
+deploy_target = ["vercel", "netlify", "heroku", "kubernetes", "k8s", "docker", "dockerfile", "helm",
+                 "aws", "gcp", "azure", "fly.io", "cloudflare"]
+
+# Reviewed exceptions: one line each, with why. Nothing else silences the guard; there is no inline
+# pragma, because a guard its subject can switch off is not a guard.
+# term = "*" allows every term in that one file.
+# qq itself runs on Python (v0 conventions), so the few places that start *its* interpreter or
+# install *its* packages are listed one by one; anywhere else, python/pip is a finding.
+
+[[allow]]
+repo = "depot"
+path = "bin/qq"
+term = "python3"
+why = "The launcher finds the interpreter that runs qq itself (QQ_PYTHON, default python3)."
+
+[[allow]]
+repo = "depot"
+path = "bin/qq"
+term = "python"
+why = "QQ_PYTHON names the interpreter that runs qq itself."
+
+[[allow]]
+repo = "depot"
+path = "src/qqdepot/bootstrap.py"
+term = "python"
+why = "Bootstraps qq's own venv (bin/python -m pip install qq)."
+
+[[allow]]
+repo = "depot"
+path = "src/qqdepot/bootstrap.py"
+term = "pip"
+why = "Installs qq's own package into its venv."
+
+[[allow]]
+repo = "depot"
+path = "src/qqdepot/pin.py"
+term = "python"
+why = "Installs a pinned qq version into its own venv."
+
+[[allow]]
+repo = "depot"
+path = "src/qqdepot/pin.py"
+term = "pip"
+why = "Installs a pinned qq version into its own venv."
+
+[[allow]]
+repo = "sync"
+path = "src/qqsync/manifest.py"
+term = "python"
+why = "Docstring: the manifest as plain Python data, i.e. qqsync's own return type."
+
+[[allow]]
+repo = "test-pipelines"
+path = "src/qqresults/junit.py"
+term = "python"
+why = "Docstring about qqresults' own normalized records."
+
+[[allow]]
+repo = "gate"
+path = "src/qqgate/guard.py"
+term = "*"
+why = "The guard's own docstrings and tests of matching name the terms it looks for."
+# Media types (application/vnd.docker.distribution...) are formats, not targets; the guard skips them.
+
+[[allow]]
+repo = "test-pipelines"
+path = "tools/planted_demo.sh"
+term = "*"
+why = "V0-TST-03's done-when demo: builds a throwaway repo with a real test runner. CI-only, not shipped."
