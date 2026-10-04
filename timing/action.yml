@@ -29,7 +29,15 @@ runs:
         QQ_GITHUB_TOKEN: ${{ inputs.token }}
       run: |
         set -uo pipefail
-        venv="$RUNNER_TEMP/qqgate-venv"
-        python3 -m venv "$venv" && "$venv/bin/python" -m pip install --quiet --disable-pip-version-check "$GITHUB_ACTION_PATH/.." \
-          && at=$("$venv/bin/qqgate" queued-at) && echo "queued-at=$at" >> "$GITHUB_OUTPUT" \
-          || echo "::warning::qq gate timing: no queue-entry time for this run; the scorecard will not time it"
+        # Nothing is installed: queued-at needs only the standard library (Python 3.11+), so no
+        # package is resolved or downloaded on a merge-queue run. -I -S keep the checked-out repo
+        # (the working directory), PYTHON* variables and all site-packages (.pth files included)
+        # off the import path; -B writes no bytecode into the action's copy.
+        if ! python3 -I -S -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
+          echo "::warning::qq gate timing: needs python3 3.11 or later on PATH; the scorecard will not time this run"
+        elif at=$(python3 -I -S -B -c 'import sys; sys.path.insert(0, sys.argv[1]); from qqgate.cli import main; sys.exit(main(["queued-at"]))' \
+            "$GITHUB_ACTION_PATH/../src"); then
+          echo "queued-at=$at" >> "$GITHUB_OUTPUT"
+        else
+          echo "::warning::qq gate timing: no queue-entry time for this run; the scorecard will not time it"
+        fi
