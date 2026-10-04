@@ -71,7 +71,8 @@ repository = "toolchains"
 path = ".github/workflows/promotion-gate.yml"
 ref = "refs/heads/main"
 # The file GitHub runs, pinned (gate re-check D-2). Its tools still come from toolchains main
-# (gate.py), so owner review there (ORG-02) is still needed. Moving it is a reviewed gate PR.
+# (gate.py), which code-owner review covers (toolchains CODEOWNERS names suraj for tools/, #14).
+# Moving it is a reviewed gate PR.
 sha = "eb71c8e54eae5ea4a2d27096f1f197dfe91bd8f2"   # toolchains main at #13 (no concurrency, 35 min)
 targets = ["toolchains"]
 
@@ -176,7 +177,8 @@ kind = "infra"
 checks = ["ci"]                      # aggregates unit
 # promotion-gate is enforced by the qq-toolchains-promotion-gate org ruleset above, not listed here:
 # it runs on pull_request_target, and a same-named job in a PR could satisfy a status check.
-code_owner_review = true             # CODEOWNERS: .github/, tools/, toolchains/, promoted.toml
+code_owner_review = true             # CODEOWNERS (toolchains #14, suraj): .github/, tools/, toolchains/,
+                                     # toolchains.toml, promoted.toml
 # One PR per merge group, so a gate change lands on main (where the org ruleset runs
 # promotion-gate.yml from) before any promotion is judged, and toolchains' own merge_group run of the
 # merge result's copy never mixes a gate change with a promotion.
