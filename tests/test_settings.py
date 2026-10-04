@@ -735,7 +735,8 @@ def test_every_repo_reserves_the_main_tag(s, cfg, config_root):
     for plan in plans_by_name(s, cfg, config_root).values():
         rs = {r["name"]: r for r in plan.rulesets}["qq-reserved-tags"]
         assert rs["target"] == "tag" and rs["bypass_actors"] == []
-        assert rs["conditions"]["ref_name"]["include"] == ["refs/tags/main"]
+        assert rs["conditions"]["ref_name"]["include"] == [f"refs/tags/{t}" for t in (
+            "main", "ledger", "perf-data", "release-state", "results", "tree-status")]
         assert {r["type"] for r in rs["rules"]} == {"creation", "update", "deletion", "non_fast_forward"}
 
 

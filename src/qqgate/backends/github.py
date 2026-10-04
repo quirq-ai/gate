@@ -183,11 +183,15 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
                   "conditions": {"ref_name": {"include": [f"refs/heads/{b}" for b in state_branches],
                                               "exclude": []}},
                   "rules": [{"type": "deletion"}, {"type": "non_fast_forward"}]}]
-    # A tag named like a branch (`main`) satisfies a workflow's `github.ref_name == 'main'` test, so
-    # nobody may create, move or delete one.
+    # A tag named like a branch (`main`) satisfies a workflow's `github.ref_name == 'main'` test, and
+    # wins over a state branch of its name on a short-name `git fetch` (release audit), so nobody may
+    # create, move or delete a tag named like `main` or any repo's state branch. (lkgr and channels/**
+    # tags are the release executor's, in the release-refs ruleset.)
     tags = settings["reserved_tags"]
+    names = list(tags["names"]) + sorted({b for r in settings.get("repo", []) for b in r.get("state_branches", ())}
+                                         - set(tags["names"]))
     state.append({"name": tags["ruleset"], "target": "tag", "enforcement": "active", "bypass_actors": [],
-                  "conditions": {"ref_name": {"include": [f"refs/tags/{t}" for t in tags["names"]], "exclude": []}},
+                  "conditions": {"ref_name": {"include": [f"refs/tags/{t}" for t in names], "exclude": []}},
                   "rules": lock})
     if dependabot_branches:
         # rollers lands a Dependabot PR only if nobody but Dependabot can change its branch after the

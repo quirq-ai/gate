@@ -17,7 +17,7 @@ die() { printf '\napply.sh: %s\n' "$*" >&2; exit 2; }
 stop() { printf '\napply.sh: %s\n' "$*" >&2; exit 1; }  # you answered something other than yes
 ask() {  # ask "question": true only when the answer is exactly yes
   local a
-  read -r -p "$1 Type yes to continue: " a  || return 1
+  read -r -p "$1 Type yes to continue: " a </dev/tty || return 1
   [ "$a" = yes ]
 }
 
@@ -35,7 +35,7 @@ if [ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ]; then
   die "GH_TOKEN or GITHUB_TOKEN is set; unset it and use gh's own login (gh auth login), which the org step refreshes"
 fi
 gh auth status -h github.com >/dev/null 2>&1 || die "gh is not logged in to github.com: run  gh auth login"
-true || die "this gate checkout has local changes; use a clean clone"
+[ -z "$(git status --porcelain --untracked-files=no)" ] || die "this gate checkout has local changes; use a clean clone"
 echo "gate commit: $(git rev-parse HEAD)"
 
 # qqgate asks `gh auth token` itself after the plan child has exited; a token in this environment
@@ -45,10 +45,22 @@ if [ -n "${QQ_GITHUB_TOKEN:-}" ]; then
   unset QQ_GITHUB_TOKEN
 fi
 
-py=python3
-qqgate=qqgate
-mkdir -p .qq/repos
-clone() { echo "CLONE $1" >> "$ST/log"; }
+# 2. Hashed, fully pinned dependencies only; nothing is resolved at install time.
+say "Setting up .venv"
+python3 -m venv .venv
+.venv/bin/pip install -q --disable-pip-version-check --require-hashes --only-binary :all: -r apply-requirements.txt
+.venv/bin/pip install -q --disable-pip-version-check --no-deps --no-build-isolation -e .
+py=.venv/bin/python
+qqgate=.venv/bin/qqgate
+
+# 3. infra-config at the commit gate pins (apply refuses any other), and a fresh clone of every
+#    repo's default branch (verify refuses stale checkouts).
+say "Cloning infra-config at the pinned commit and every repo fresh"
+pin=$("$py" -c "import tomllib; print(tomllib.load(open('pins.toml', 'rb'))['infra-config']['commit'])")
+rm -rf .qq && mkdir -p .qq/repos
+git clone --quiet "https://github.com/$owner/infra-config" .qq/infra-config
+git -C .qq/infra-config checkout --quiet "$pin"
+clone() { rm -rf ".qq/repos/$1" && git clone --quiet --depth 1 "https://github.com/$owner/$1" ".qq/repos/$1"; }
 for r in $("$py" -c "import tomllib; print(' '.join(r['name'] for r in tomllib.load(open('settings/github.toml', 'rb'))['repo']))"); do
   clone "$r"
 done

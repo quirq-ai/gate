@@ -28,7 +28,8 @@ bypass_integration_ids = []
 
 [reserved_tags]
 # Tags named like a branch. A tag called `main` satisfies a workflow's `github.ref_name == 'main'`
-# test, so in every repo nobody may create, move or delete one (perf audit).
+# test, so in every repo nobody may create, move or delete one (perf audit). Every repo's
+# state_branches are reserved too: a tag wins over a branch of its name on a short-name fetch.
 ruleset = "qq-reserved-tags"
 names = ["main"]
 
