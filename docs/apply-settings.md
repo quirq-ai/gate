@@ -48,8 +48,8 @@ look at them on GitHub. The repo rulesets are always checked.
    again, writes, and on exit runs `gh auth refresh -h github.com --remove-scopes admin:org` (unless
    gh already had that scope before; with the scope already there it does not ask gh at all). The
    org run re-plans the repo rulesets too; they show as `unchanged` and are not written again. Once
-   the org rulesets of a commit are applied, the script records that commit in `.qq-gate-org-done`
-   (next to `qq-gate`), and a re-run of the same commit skips the org step and its browser prompts,
+   the org rulesets of a commit are applied, the script records that commit in
+   `~/qq-apply/.qq-gate-org-done`, and a re-run of the same commit skips the org step and its browser prompts,
    without checking the org rulesets for edits made on GitHub since (see above: delete the file to
    run it again).
 

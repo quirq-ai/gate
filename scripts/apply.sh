@@ -9,7 +9,7 @@
 # verify and a dry run, and writes only after you type `yes`. A repo that moves during the run is
 # cloned again and offered again. If an org ruleset is enabled in settings/github.toml it then asks
 # gh for admin:org, applies those, and drops the scope again; a re-run of the same commit that
-# already applied them skips that step (../.qq-gate-org-done; delete it after any change on GitHub). Nothing is written before a `yes`. Re-running is safe:
+# already applied them skips that step (~/qq-apply/.qq-gate-org-done; delete it after any change on GitHub). Nothing is written before a `yes`. Re-running is safe:
 # rulesets are created or updated by name.
 set -euo pipefail
 
