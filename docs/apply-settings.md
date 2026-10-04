@@ -94,8 +94,11 @@ is no less safe.
 - `qq-main` on the default branch: pull request required, merge queue (squash, all-green grouping,
   verdict timeout = gate.toml's 40-minute admission limit), the required checks (each pinned to the
   GitHub Actions app), no force push, no deletion, and nobody on the bypass list. Together these
-  refuse a direct push to `main`. toolchains also requires code-owner review, which takes effect for
-  the paths its CODEOWNERS gives owners (none are named yet: ORG-02).
+  refuse a direct push to `main`. toolchains also requires code-owner review: its CODEOWNERS (toolchains
+  #14) names suraj for `/.github/`, `/tools/`, `/toolchains/`, `/toolchains.toml` and
+  `/promoted.toml`, so a change there needs his approval once `qq-main` is applied. GitHub does
+  not let anyone approve their own PR and nobody bypasses `qq-main`, so a PR suraj opens himself that
+  touches those paths cannot merge until a second owner is named (README: TODO(suraj)).
 - `qq-release-refs-branches` and `qq-release-refs-tags`: `lkgr` and `channels/**/*` cannot be created,
   moved or deleted except by the release executor. Its identity is not decided yet, so today nobody
   can write them.
@@ -158,8 +161,8 @@ one on or off is a reviewed change to that file, after which the same command ap
   the code it runs: owner review of tests and scripts is V0-GAT-03 (waits on ORG-02 owners).
 - `qq-toolchains-promotion-gate` (on): toolchains' `promotion-gate.yml`, pinned at `eb71c8e`
   (toolchains #13: no `cancel-in-progress`, a 35-minute timeout). The pin fixes the workflow file;
-  the gate tools it runs (`tools/gate.py`) still come from toolchains `main`, so owner review there
-  (ORG-02) is still needed.
+  the gate tools it runs (`tools/gate.py`) still come from toolchains `main`, where `/tools/` needs
+  suraj's code-owner approval (toolchains #14).
 - `qq-drift` (off): infra-config's `qq-drift.yml` in the product repos. Waits on that file only checking
   the default branch against a pinned config, and on infra-config PR 24 (today its check-delivered
   step would fail every xo-space PR on rollers' `qq-roll-land.yml`); then it is pinned and enabled
