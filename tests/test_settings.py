@@ -860,24 +860,38 @@ def test_dependabot_pattern_reaches_its_branches():
 
 
 def test_yes_writes_only_the_plan_the_dry_run_showed(apply_env, config_root, tmp_path, capsys):
-    """Re-check E-2: the write re-plans, so --expect-plan refuses unless it matches the dry run."""
-    import re as _re
-    sent, live = [], {"action": "create"}
+    """Re-check E-2: the write re-plans, so --expect-plan refuses anything the dry run did not show."""
+    sent, live = [], {"action": "create", "warn": []}
+    saved = tmp_path / "plan.json"
+    apply_env.setattr(github, "existing_protection", lambda *a: live["warn"])
     apply_env.setattr(github, "plan_repo", lambda *a: [
         {"where": "quirq-ai/sync", "name": "qq-main", "action": live["action"], "diff": []}])
     apply_env.setattr(github, "write", lambda c, t: sent.append(c) or "quirq-ai/sync: create ruleset qq-main")
-    assert main(_apply_args(config_root, tmp_path, "sync")) == 0
-    digest = _re.search(r"^digest   ([0-9a-f]{64})$", capsys.readouterr().out, _re.M).group(1)
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=["--save-plan", str(saved)])) == 0
+    capsys.readouterr()
+    write = ["--yes", "--accept-warnings", "--overwrite", "--expect-plan", str(saved)]
     live["action"] = "update"   # someone changed it on GitHub between the dry run and the write
-    assert main(_apply_args(config_root, tmp_path, "sync", extra=["--yes", "--overwrite", "--expect-plan", digest])) == 1
-    assert "the plan changed since the dry run" in capsys.readouterr().out and sent == []
-    live["action"] = "create"
-    assert main(_apply_args(config_root, tmp_path, "sync", extra=["--yes", "--expect-plan", digest])) == 0
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=write)) == 1
+    out = capsys.readouterr().out
+    assert "the plan changed since the dry run" in out and "quirq-ai/sync: update qq-main" in out and sent == []
+    live.update(action="create", warn=["branch protection requires 'x'"])   # a new WARNING
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=write)) == 1
+    assert "WARNING sync: branch protection" in capsys.readouterr().out and sent == []
+    live["warn"] = []
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=write)) == 0
     assert len(sent) == 1
 
 
-def test_digest_covers_repos_left_out_and_warnings():
-    from qqgate import cli
-    base = cli._plan_digest([], [], [], [])
-    assert len({base, cli._plan_digest(["w"], [], [], []), cli._plan_digest([], [], [], ["depot"]),
-                cli._plan_digest([], [], ["qq-drift"], [])}) == 4
+def test_a_repo_that_left_the_plan_only_drops_its_writes(apply_env, config_root, tmp_path, capsys):
+    """One repo moving between the dry run and the write does not hold up the others."""
+    sent = []
+    saved = tmp_path / "plan.json"
+    apply_env.setattr(github, "plan_repo", lambda owner, repo, *a: [
+        {"where": f"quirq-ai/{repo}", "name": "qq-main", "action": "create", "diff": []}])
+    apply_env.setattr(github, "write", lambda c, t: sent.append(c["where"]) or f"{c['where']}: create")
+    assert main(_apply_args(config_root, tmp_path, "sync", "gate", extra=["--save-plan", str(saved)])) == 0
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=["--yes", "--expect-plan", str(saved)])) == 0
+    assert sent == ["quirq-ai/sync"]
+    assert main(_apply_args(config_root, tmp_path, "sync", "gate", "toolchains",
+                            extra=["--yes", "--expect-plan", str(saved)])) == 1
+    assert "quirq-ai/toolchains: create qq-main" in capsys.readouterr().out and sent == ["quirq-ai/sync"]

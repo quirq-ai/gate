@@ -15,7 +15,7 @@ rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && (cd q
 ```
 
 Run it from the same directory every time (an empty one the first time); your shell stays in that
-directory. Each run clones `qq-gate`
+directory. If your shell is still inside `qq-gate` from the older command, `cd ..` first. Each run clones `qq-gate`
 fresh and builds its `.venv` from scratch, so nothing left in an earlier clone (an edited script, a
 package in the venv) can run. The one file kept between runs is `.qq-gate-org-done`, next to
 `qq-gate`, outside the clone.
@@ -33,10 +33,11 @@ look at them on GitHub. The repo rulesets are always checked.
    fresh into `.qq/repos` (re-running clones again, so nothing is stale).
 4. Runs `settings verify` (which repos are ready), cloning again any repo that moved since its
    clone, then a dry run (GETs only), and prints them.
-5. Asks you to type `yes` before writing, and writes only the plan you saw: the dry run prints a
-   `digest` of everything it showed (each change, WARNING, and what it left out), and the write
-   refuses unless its own plan has the same digest. If something changed in between, nothing is
-   written and the dry run is shown again. It asks separately, first, if the dry run printed a
+5. Asks you to type `yes` before writing, and writes only what you saw: the dry run saves each
+   change and WARNING it showed, and the write refuses if it would do anything else (a ruleset
+   edited on GitHub meanwhile, a new WARNING, a repo that became ready). Then nothing is written
+   and the dry run is shown again. A repo that moved meanwhile just drops out of the write and is
+   offered again on its own. It asks separately, first, if the dry run printed a
    `WARNING` (other protection already on a repo, see below) or a ruleset marked `differs` (one of
    ours that is not what settings say: settings changed, or someone edited it on GitHub; writing
    replaces it, so a bypass added in the UI is removed).
@@ -58,7 +59,7 @@ ready, skipped or refused, or you answered something other than `yes` (the outpu
 and run the command again); 2 means an error stopped it. The script refuses to start while
 `GH_TOKEN` or `GITHUB_TOKEN` is set, since the org step refreshes gh's stored login. Re-running is always safe.
 
-The script calls `qqgate settings verify` and `qqgate settings apply` (`--yes`, `--expect-plan`,
+The script calls `qqgate settings verify` and `qqgate settings apply` (`--yes`, `--save-plan`, `--expect-plan`,
 `--accept-warnings`, `--overwrite`, `--org`); each refuses on its own what the script asks about, so running them by hand
 is no less safe.
 

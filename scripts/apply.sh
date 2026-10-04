@@ -102,12 +102,13 @@ done
 # that differs, a yes for the plan, then the write. A repo that moved between clone and write is
 # cloned again and offered again on its own, up to three rounds.
 phase() {
-  local what=$1 round only=() f again bad=0 org=no digest
+  local what=$1 round only=() f again bad=0 org=no
   case " $* " in *" --org "*) org=yes ;; esac
   shift
   for round in 1 2 3; do
     say "Dry run of $what (reads GitHub, writes nothing)"
-    qq settings apply "${args[@]}" "$@" ${only[@]+"${only[@]}"}
+    rm -f .qq/plan.json
+    qq settings apply "${args[@]}" "$@" ${only[@]+"${only[@]}"} --save-plan .qq/plan.json
     cp "$log" .qq/dry.txt
     f=()
     if grep -q '^WARNING ' .qq/dry.txt; then
@@ -121,14 +122,16 @@ phase() {
       f+=(--overwrite)
     fi
     if grep -Eq '^plan .*: (create|update) ruleset' .qq/dry.txt; then
-      digest=$(awk '/^digest /{print $2}' .qq/dry.txt)
-      [ -n "$digest" ] || die "the dry run of $what printed no digest; nothing more was written"
       ask "Write every 'plan' line above to GitHub (for $what, and any repo ruleset listed with them)?" || stop "stopped before writing $what; nothing more was written"
       say "Writing $what"
-      # --expect-plan: the write re-plans, and refuses unless that plan is exactly the one shown above.
-      qq settings apply "${args[@]}" "$@" ${only[@]+"${only[@]}"} --yes --expect-plan "$digest" ${f[@]+"${f[@]}"}
+      # --expect-plan: the write re-plans, and refuses if it would do anything the dry run above did
+      # not show (a repo that moved since only drops its writes, and is offered again below).
+      qq settings apply "${args[@]}" "$@" ${only[@]+"${only[@]}"} --yes --expect-plan .qq/plan.json ${f[@]+"${f[@]}"}
       if grep -q 'the plan changed since the dry run' "$log"; then
+        cat .qq/dry.txt "$log" > .qq/both.txt && mv .qq/both.txt "$log"
+        again=$(moved)
         say "Something changed between the dry run and the write, so nothing was written; here is the new dry run"
+        for r in $again; do clone "$r"; done   # same scope: this round wrote nothing
         continue
       fi
     else
