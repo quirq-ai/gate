@@ -105,10 +105,8 @@ is no less safe.
   #14) names suraj for `/.github/`, `/tools/`, `/toolchains/`, `/toolchains.toml` and
   `/promoted.toml`, so a change there needs his approval once `qq-main` is applied. GitHub does
   not let anyone approve their own PR and nobody bypasses `qq-main`, so a PR suraj opens himself that
-  touches those paths cannot merge until a second owner is named (README: TODO(suraj)). It also
-  requires the newest push on a PR to be approved by someone other than its pusher
-  (`last_push_approval`), so a push after suraj's approval needs his approval again, and it requires
-  `promotion-gate` besides `ci`. Its queue merges one PR per group.
+  touches those paths cannot merge until a second owner is named (README: TODO(suraj)). toolchains
+  also requires `promotion-gate` besides `ci`, and its queue merges one PR per group.
 - `qq-release-refs-branches` and `qq-release-refs-tags`: `lkgr` and `channels/**/*` cannot be created,
   moved or deleted except by the release executor. Its identity is not decided yet, so today nobody
   can write them.
@@ -208,8 +206,8 @@ App tokens); PRs already open get it on their next push. The org's plan does not
   requires suraj's code-owner review there (toolchains #14); xo-space and innernet do not yet.
 - toolchains' promotion gate is a repo required check (`promotion-gate`, on `pull_request` and
   `merge_group` since toolchains #15). A PR could fake it only by editing `.github/` or `tools/`,
-  which need suraj's code-owner review, and toolchains also requires the newest push to be approved
-  by someone other than its pusher, so what lands is what was reviewed.
+  which need suraj's code-owner review; a push after his approval dismisses it
+  (`dismiss_stale_reviews_on_push`), so what lands is what he reviewed.
 - rollers lands a Dependabot roll on its own only into a repo with a gate no workflow can fake (a
   pinned required workflow, or a check from an App other than GitHub Actions), so it stays off.
 

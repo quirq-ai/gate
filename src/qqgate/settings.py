@@ -114,13 +114,10 @@ def repo_options(r: dict) -> dict:
         raise GateError(f"{r['name']}: release_tags must be distinct tag name patterns (no refs/), not {tags!r}")
     if not all(_matches_nested(t) for t in tags):
         raise GateError(f"{r['name']}: release_tags {tags!r} {_NESTED}")
-    last = r.get("last_push_approval", False)
-    if not isinstance(last, bool):
-        raise GateError(f"{r['name']}: last_push_approval must be true or false, not {last!r}")
     bot = r.get("dependabot_branches", False)
     if not isinstance(bot, bool):
         raise GateError(f"{r['name']}: dependabot_branches must be true or false, not {bot!r}")
-    return {"code_owner_review": owners, "last_push_approval": last, "group_size": size, "state_branches": tuple(state),
+    return {"code_owner_review": owners, "group_size": size, "state_branches": tuple(state),
             "dependabot_branches": bot, "release_tags": tuple(tags)}
 
 

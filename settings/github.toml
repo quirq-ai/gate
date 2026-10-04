@@ -183,8 +183,6 @@ checks = ["ci", "promotion-gate"]    # ci aggregates unit; promotion-gate on pul
                                      # tools/, which need suraj's code-owner review (below).
 code_owner_review = true             # CODEOWNERS (toolchains #14, suraj): .github/, tools/, toolchains/,
                                      # toolchains.toml, promoted.toml
-last_push_approval = true            # the newest push needs an approval from someone other than its
-                                     # pusher, so code-owner review covers what actually lands
 # One PR per merge group, so a gate change lands on main (where the org ruleset runs
 # promotion-gate.yml from) before any promotion is judged, and toolchains' own merge_group run of the
 # merge result's copy never mixes a gate change with a promotion.
