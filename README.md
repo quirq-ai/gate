@@ -63,16 +63,26 @@ on today (every required check must run on `pull_request` and `merge_group` ther
 creates or updates them by name for ready repos only. An org admin runs `apply`; see
 [docs/apply-settings.md](docs/apply-settings.md).
 
+## Agnosticism guard (V0-GAT-02)
+
+`qqgate guard --repo <core repo> [ROOT]` fails if shipped code in a core repo (depot, sync, gate,
+test-pipelines, gardener, release; plan §5.1) names a language, build tool or deploy target. Python
+files are read with `ast` (identifiers, imports, strings) and `tokenize` (comments); other files are
+grepped. Tests, docs and CI are not core code. The terms, the runtime carve-out (qq itself runs on
+Python, so `python` and `pip` may name *its* interpreter) and the reviewed exceptions are in
+`guard/terms.toml`, a policy file; there is no inline pragma. Each core repo adds
+`qqgate guard --repo <name> .` to its presubmit; this repo's `settings-drift` job sweeps them all.
+
 ## v0 status
 
 | Item | PR | State |
 | --- | --- | --- |
 | bootstrap | #1 | merged |
 | V0-GAT-01 | #2 | merged; live demo waits on V0-ORG-03, V0-ONB-01/02 |
-| V0-ORG-03 | #3 | in review; suraj applies ([docs/apply-settings.md](docs/apply-settings.md)) |
-| V0-GAT-02 | | waits on V0-GAT-01 |
+| V0-ORG-03 | #3 | merged; waits on suraj to apply ([docs/apply-settings.md](docs/apply-settings.md)) |
+| V0-GAT-02 | #4 | in review |
 | V0-GAT-03 | | waits on V0-GAT-01, V0-ORG-02 (suraj's owners) |
-| V0-GAT-04 | | waits on V0-TST-02 (test-pipelines) |
+| V0-GAT-04 | | in progress (V0-TST-02 merged) |
 
 ## Known conflict
 

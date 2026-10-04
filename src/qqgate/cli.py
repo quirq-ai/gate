@@ -10,6 +10,8 @@
         plan: every repo's rulesets as JSON. verify --checkouts DIR: which repos are safe to apply
         (each required check runs on pull_request and merge_group there). apply: create or update the
         rulesets of ready repos; dry run unless --yes. Needs an admin token in QQ_GITHUB_TOKEN.
+    qqgate guard --repo NAME [ROOT]   (V0-GAT-02)
+        Fail if a core repo's shipped code names a language, build tool or deploy target.
 Exit codes: 0 ok or pass, 1 refused or not ready, 2 the gate could not decide.
 """
 from __future__ import annotations
@@ -21,7 +23,7 @@ from pathlib import Path
 
 import os
 
-from qqgate import __version__, backends, config, required, settings, verdict
+from qqgate import __version__, backends, config, guard, required, settings, verdict
 from qqgate.errors import GateError
 
 
@@ -131,6 +133,15 @@ def cmd_settings(args) -> int:
     return 0 if all(not w for w in ready.values()) else 1
 
 
+def cmd_guard(args) -> int:
+    findings = guard.scan_repo(Path(args.root), args.repo, guard.load_terms())
+    for f in findings:
+        print(f"::error file={f.path},line={f.line}::{f}" if args.github else str(f))
+    print(f"{args.repo}: {len(findings)} finding(s); core code must stay agnostic (plan §5.1)"
+          if findings else f"{args.repo}: agnostic")
+    return 1 if findings else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="qqgate", description=__doc__.splitlines()[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
@@ -160,6 +171,11 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--yes", action="store_true", help="apply: really write (default is a dry run)")
     st.add_argument("--org", action="store_true", help="apply: also the org ruleset (qq-drift workflow)")
     st.add_argument("--no-validate", action="store_true", help="skip qqcfg validate (tests only)")
+    gd = sub.add_parser("guard", help="agnosticism guard for a core repo (V0-GAT-02)")
+    gd.set_defaults(fn=cmd_guard)
+    gd.add_argument("--repo", required=True, help="core repo name (guard/terms.toml core)")
+    gd.add_argument("--github", action="store_true", help="print GitHub annotations")
+    gd.add_argument("root", nargs="?", default=".", help="the repo checkout (default: .)")
     args = ap.parse_args(argv)
     try:
         return args.fn(args)

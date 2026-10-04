@@ -1,0 +1,41 @@
+# V0-GAT-02: the agnosticism guard (plan §5.1). No core file names a language, build tool or deploy
+# target; anything language-specific lives in a recipes adapter, found through one loader.
+# Changing this file is a policy change (verification surface), so it needs suraj.
+
+# Core repos (plan §5.1). The guard runs on their shipped code, not on tests, docs or CI.
+core = ["depot", "sync", "gate", "test-pipelines", "gardener", "release"]
+scan = ["src/**", "bin/**", "tools/**"]
+skip = ["**/__pycache__/**", "**/*.egg-info/**", "**/*.md"]
+
+# qq's own runtime. Infra repos are written in Python (v0 conventions), so a core tool may name the
+# interpreter and installer that run *it*. The rule is about the repos qq builds, so these never
+# appear in what a core tool says about a target. TODO(expert): narrow to bootstrap paths.
+runtime = ["python", "python3", "pip"]
+
+# Matched as whole words, ignoring case. TODO(expert): grow these lists as kinds are added.
+[terms]
+language = ["python", "python3", "cpython", "javascript", "typescript", "golang", "rust", "java",
+            "kotlin", "ruby", "php", "csharp", "nodejs", "node.js", "deno"]
+build_tool = ["pytest", "unittest", "pip", "pipx", "poetry", "setuptools", "compileall", "tox", "nox",
+              "hypothesis", "npm", "npx", "pnpm", "yarn", "webpack", "vite", "next.js", "nextjs", "tsc",
+              "jest", "vitest", "mocha", "fast-check", "cargo", "gradle", "maven", "bazel", "cmake", "gcc",
+              "clang"]
+# Not terms: JUnit XML is qq's result interchange format (plan §5.2, ResultSink), not a build tool.
+deploy_target = ["vercel", "netlify", "heroku", "kubernetes", "k8s", "docker", "dockerfile", "helm",
+                 "aws", "gcp", "azure", "fly.io", "cloudflare"]
+
+# Reviewed exceptions: one line each, with why. Nothing else silences the guard; there is no inline
+# pragma, because a guard its subject can switch off is not a guard.
+# term = "*" allows every term in that one file.
+
+[[allow]]
+repo = "gate"
+path = "src/qqgate/guard.py"
+term = "*"
+why = "The guard's own docstrings and tests of matching name the terms it looks for."
+
+[[allow]]
+repo = "depot"
+path = "src/qqdepot/store.py"
+term = "docker"
+why = "The OCI registry media type application/vnd.docker.distribution.manifest.v2+json, not a deploy target."
