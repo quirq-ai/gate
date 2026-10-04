@@ -27,8 +27,8 @@ Run it from the same directory every time: the first run clones `qq-gate`, a re-
    clone, then a dry run (GETs only), and prints them.
 5. Asks you to type `yes` before writing. It asks separately, first, if the dry run printed a
    `WARNING` (other protection already on a repo, see below) or a ruleset marked `differs` (one of
-   ours that someone changed on GitHub; writing replaces it, so a bypass added in the UI is
-   removed).
+   ours that is not what settings say: settings changed, or someone edited it on GitHub; writing
+   replaces it, so a bypass added in the UI is removed).
 6. Writes the repo rulesets. A repo that moved between its clone and the write is skipped by
    qqgate; the script clones it again and offers just that repo again (dry run and `yes`), up to
    three rounds, so you do not start over.
@@ -38,8 +38,8 @@ Run it from the same directory every time: the first run clones `qq-gate`, a re-
    gh already had that scope before; with the scope already there it does not ask gh at all). The
    org run re-plans the repo rulesets too; they show as `unchanged` and are not written again. Once
    the org rulesets of a commit are applied, the script records that commit in `.apply-org-done`,
-   and a re-run of the same commit skips the org step and its browser prompts (delete the file to
-   run it again).
+   and a re-run of the same commit skips the org step and its browser prompts, without checking the
+   org rulesets for edits made on GitHub since (delete the file to run it again).
 
 Nothing is written before a `yes`. Exit 0 means everything is applied; 1 means something was not
 ready, skipped or refused, or you answered something other than `yes` (the output says what; fix it

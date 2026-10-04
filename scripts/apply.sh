@@ -101,7 +101,8 @@ done
 # that differs, a yes for the plan, then the write. A repo that moved between clone and write is
 # cloned again and offered again on its own, up to three rounds.
 phase() {
-  local what=$1 round only=() f again
+  local what=$1 round only=() f again bad=0 org=no
+  case " $* " in *" --org "*) org=yes ;; esac
   shift
   for round in 1 2 3; do
     say "Dry run of $what (reads GitHub, writes nothing)"
@@ -114,27 +115,34 @@ phase() {
       f+=(--accept-warnings)
     fi
     if grep -q '(differs: ' .qq/dry.txt; then
-      ask "Rulesets marked 'differs' were changed on GitHub (for example in the UI); writing replaces them, removing any bypass added there." \
+      ask "Rulesets marked 'differs' are not what settings/github.toml says (settings changed, or someone edited them on GitHub); writing replaces them, removing any bypass added there." \
         || stop "stopped before writing $what; nothing more was written"
       f+=(--overwrite)
     fi
     if grep -Eq '^plan .*: (create|update) ruleset' .qq/dry.txt; then
-      ask "Write the 'plan' lines above for $what to GitHub?" || stop "stopped before writing $what; nothing more was written"
+      ask "Write every 'plan' line above to GitHub (for $what, and any repo ruleset listed with them)?" || stop "stopped before writing $what; nothing more was written"
       say "Writing $what"
       qq settings apply "${args[@]}" "$@" ${only[@]+"${only[@]}"} --yes ${f[@]+"${f[@]}"}
     else
       echo "Nothing to write for $what."
     fi
     cat .qq/dry.txt "$log" > .qq/both.txt && mv .qq/both.txt "$log"
-    other_problem && status=1
+    # A repo round re-plans only what moved, so what earlier rounds found still counts. The org
+    # round re-plans everything, so only its last round counts (an org ruleset skipped because its
+    # repo moved is written in the next round).
+    if [ "$org" = yes ]; then bad=0; fi
+    other_problem && bad=1
     again=$(moved)
-    [ -n "$again" ] || return 0
+    if [ -z "$again" ]; then
+      [ "$bad" = 0 ] || status=1
+      return 0
+    fi
     say "These moved during the run and are cloned again: $(echo $again)"
     only=()
     for r in $again; do
       clone "$r"
       # The org run always plans every repo: limited to some, it would skip the org rulesets of the rest.
-      case " $* " in *" --org "*) ;; *) only+=(--repo "$r") ;; esac
+      [ "$org" = yes ] || only+=(--repo "$r")
     done
   done
   echo "Still moving after three rounds: $(echo $again). Run the command again later."
@@ -152,7 +160,7 @@ if [ "$enabled" = 0 ]; then
 fi
 done_mark=.apply-org-done   # untracked; holds the gate commit whose org rulesets were applied
 if [ "$(cat "$done_mark" 2>/dev/null || true)" = "$(git rev-parse HEAD)" ]; then
-  finish "The org rulesets of this commit were applied by an earlier run, so the admin:org step is skipped (delete $done_mark to run it again). Done."
+  finish "The org rulesets of this commit were applied by an earlier run, so the admin:org step is skipped (it did not check them for edits made on GitHub since; delete $done_mark to run it again). Done."
 fi
 ask "$enabled org ruleset(s) are enabled. They need the admin:org scope, which gh will now ask you to grant (and this script removes again at the end)." \
   || stop "stopped before the org step; the repo rulesets above are applied"
