@@ -80,3 +80,9 @@ path = "src/qqgate/guard.py"
 term = "*"
 why = "The guard's own docstrings and tests of matching name the terms it looks for."
 # Media types (application/vnd.docker.distribution...) are formats, not targets; the guard skips them.
+
+[[allow]]
+repo = "test-pipelines"
+path = "tools/planted_demo.sh"
+term = "*"
+why = "V0-TST-03's done-when demo: builds a throwaway repo with a real test runner. CI-only, not shipped."
