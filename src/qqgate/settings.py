@@ -89,9 +89,21 @@ def build(settings: dict, cfg: dict, config_root: Path) -> list[RepoPlan]:
             checks = tuple(r.get("checks", []))
         if len(set(checks)) != len(checks):
             raise GateError(f"{r['name']}: a required check is listed twice: {checks}")
+        repo_settings(r)  # type-checked here too, so verify refuses a bad value
         rulesets = mod.rulesets(settings, cfg, checks, **repo_options(r))
         plans.append(RepoPlan(r["name"], r["kind"], checks, tuple(rulesets)))
     return plans
+
+
+def repo_settings(r: dict) -> dict:
+    """Repo settings (not rulesets) from settings/<backend>.toml that apply writes, type-checked.
+    allow_auto_merge: with the merge queue on, auto-merge is how agent sessions queue a PR."""
+    out = {}
+    if "allow_auto_merge" in r:
+        if not isinstance(r["allow_auto_merge"], bool):
+            raise GateError(f"{r['name']}: allow_auto_merge must be true or false, not {r['allow_auto_merge']!r}")
+        out["allow_auto_merge"] = r["allow_auto_merge"]
+    return out
 
 
 def repo_options(r: dict) -> dict:
