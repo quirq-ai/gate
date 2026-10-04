@@ -11,11 +11,13 @@ export a token: qqgate asks `gh auth token` itself, after the step that runs inf
 has exited.
 
 ```sh
-mkdir -p ~/qq-apply && cd ~/qq-apply && rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && (cd qq-gate && git checkout -q <COMMIT> && scripts/apply.sh)
+( mkdir -p ~/qq-apply && cd ~/qq-apply && rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && cd ./qq-gate && git checkout -q <COMMIT> && scripts/apply.sh )
 ```
 
-It always works in `~/qq-apply`, wherever you paste it, and leaves your shell there. Each run clones `qq-gate`
-fresh and builds its `.venv` from scratch, so nothing left in an earlier clone (an edited script, a
+Paste it from any directory, as often as you like: it all runs in a subshell `( ... )`, so your
+shell stays in the directory you were in, with no variable changed. The work happens in
+`~/qq-apply`, and no leftover there can make it fail: each run deletes and clones `qq-gate` fresh
+and builds its `.venv` from scratch, so nothing left in an earlier clone (an edited script, a
 package in the venv) can run. The one file kept between runs is `~/qq-apply/.qq-gate-org-done`,
 outside the clone.
 
@@ -32,8 +34,9 @@ look at them on GitHub. The repo rulesets are always checked.
    fresh into `.qq/repos` (re-running clones again, so nothing is stale).
 4. Runs `settings verify` (which repos are ready), cloning again any repo that moved since its
    clone, then a dry run (GETs only), and prints them.
-5. Asks you to type `yes` before writing, and writes only what you saw: the dry run saves each
-   change and WARNING it showed, and the write refuses if it would do anything else (a ruleset
+5. Asks "Apply these N changes to GitHub? Type yes to apply, anything else cancels" before writing
+   (only a literal `yes` goes on; any other answer writes nothing), and writes only what you saw:
+   the dry run saves each change and WARNING it showed, and the write refuses if it would do anything else (a ruleset
    edited on GitHub meanwhile, a new WARNING, a repo that became ready). Then nothing is written
    and the dry run is shown again. A repo that moved meanwhile just drops out of the write and is
    offered again on its own. It asks separately, first, if the dry run printed a

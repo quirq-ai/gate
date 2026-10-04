@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Apply the gate's settings: the one command in docs/apply-settings.md (V0-ORG-03, an org admin runs it).
-# It works in ~/qq-apply wherever it is pasted; each run clones qq-gate there fresh, so nothing an earlier
-# run left in it (an edited script, a package in the venv) can run:
+# Paste it from anywhere, any number of times: the subshell leaves your shell where it was. Each run
+# deletes and clones qq-gate fresh in ~/qq-apply, so nothing an earlier run left there (an edited
+# script, a package in the venv) can run or get in the way:
 #
-#   mkdir -p ~/qq-apply && cd ~/qq-apply && rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && (cd qq-gate && git checkout -q <COMMIT> && scripts/apply.sh)
+#   ( mkdir -p ~/qq-apply && cd ~/qq-apply && rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && cd ./qq-gate && git checkout -q <COMMIT> && scripts/apply.sh )
 #
 # It sets up a new hashed venv, clones infra-config at the pinned commit and every repo fresh, runs
 # verify and a dry run, and writes only after you type `yes`. A repo that moves during the run is
@@ -12,13 +13,13 @@
 # already applied them skips that step (~/qq-apply/.qq-gate-org-done; delete it after any change on GitHub). Nothing is written before a `yes`. Re-running is safe:
 # rulesets are created or updated by name.
 set -euo pipefail
+unset CDPATH  # a CDPATH entry could send a relative cd to another clone
 
 say() { printf '\n== %s\n' "$*"; }
 die() { printf '\napply.sh: %s\n' "$*" >&2; exit 2; }
-stop() { printf '\napply.sh: %s\n' "$*" >&2; exit 1; }  # you answered something other than yes
-ask() {  # ask "question": true only when the answer is exactly yes
+ask() {  # ask "question" "what yes does": true only when the answer is exactly yes
   local a
-  read -r -p "$1 Type yes to continue: " a </dev/tty || return 1
+  read -r -p "$1 Type yes to $2, anything else cancels: " a </dev/tty || return 1
   [ "$a" = yes ]
 }
 
@@ -70,9 +71,16 @@ log=.qq/out.txt
 
 # Exit 0 = all good, 1 = something not ready or refused (the output says what), 2 = error.
 status=0
+# The exact command to run again (from any directory; it leaves your shell where it was).
+again_cmd="( mkdir -p ~/qq-apply && cd ~/qq-apply && rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && cd ./qq-gate && git checkout -q $(git rev-parse HEAD) && scripts/apply.sh )"
 finish() {
   if [ "$status" = 0 ]; then say "$1"; exit 0; fi
-  say "Finished, but something above was not ready, skipped or REFUSED (exit 1). Fix it and run this again."
+  say "Finished, but something above was not ready, skipped or REFUSED (exit 1). Fix it and run this again:"
+  echo "  $again_cmd"
+  exit 1
+}
+cancel() {  # you answered something other than yes
+  printf '\napply.sh: cancelled: %s. To go on, run this again and type yes:\n  %s\n' "$1" "$again_cmd" >&2
   exit 1
 }
 # Repos whose checkout fell behind their default branch during the run ("clone again"), and
@@ -102,7 +110,7 @@ done
 # that differs, a yes for the plan, then the write. A repo that moved between clone and write is
 # cloned again and offered again on its own, up to three rounds.
 phase() {
-  local what=$1 round only=() f again bad=0 org=no
+  local what=$1 round only=() f again bad=0 org=no n c
   case " $* " in *" --org "*) org=yes ;; esac
   shift
   for round in 1 2 3; do
@@ -112,17 +120,19 @@ phase() {
     cp "$log" .qq/dry.txt
     f=()
     if grep -q '^WARNING ' .qq/dry.txt; then
-      ask "The WARNING lines above are protection already on those repos, which stacks with ours." \
-        || stop "stopped before writing $what; nothing more was written"
+      ask "The WARNING lines above are protection already on those repos, which stays and stacks with ours. Go on?" "go on" \
+        || cancel "nothing more was written for $what"
       f+=(--accept-warnings)
     fi
     if grep -q '(differs: ' .qq/dry.txt; then
-      ask "Rulesets marked 'differs' are not what settings/github.toml says (settings changed, or someone edited them on GitHub); writing replaces them, removing any bypass added there." \
-        || stop "stopped before writing $what; nothing more was written"
+      ask "Rulesets marked 'differs' are not what settings/github.toml says (settings changed, or someone edited them on GitHub). Replace them, removing any bypass added there?" "replace them" \
+        || cancel "nothing more was written for $what"
       f+=(--overwrite)
     fi
     if grep -Eq '^plan .*: (create|update) ruleset' .qq/dry.txt; then
-      ask "Write every 'plan' line above to GitHub (for $what, and any repo ruleset listed with them)?" || stop "stopped before writing $what; nothing more was written"
+      n=$(grep -cE '^plan .*: (create|update) ruleset' .qq/dry.txt)
+      [ "$n" = 1 ] && c=change || c=changes
+      ask "Apply these $n $c to GitHub ($what, the 'plan' lines above)?" "apply" || cancel "nothing more was written for $what"
       say "Writing $what"
       # --expect-plan: the write re-plans, and refuses if it would do anything the dry run above did
       # not show (a repo that moved since only drops its writes, and is offered again below).
@@ -156,7 +166,7 @@ phase() {
       [ "$org" = yes ] || only+=(--repo "$r")
     done
   done
-  echo "Still changing after three rounds${again:+: $(echo $again)}. Run the command again later."
+  echo "Still changing after three rounds${again:+: $(echo $again)}. Run the same command again later."
   status=1
 }
 
@@ -172,10 +182,10 @@ fi
 # Outside the clone, which every run replaces; holds the gate commit whose org rulesets were applied.
 done_mark="$(cd .. && pwd)/.qq-gate-org-done"
 if [ "$(cat "$done_mark" 2>/dev/null || true)" = "$(git rev-parse HEAD)" ]; then
-  finish "The org rulesets of this commit were applied by an earlier run, so the admin:org step is skipped. It did not check them on GitHub: if anything was changed or deleted there, run  rm -f $done_mark  and the command again. Done."
+  finish "The org rulesets of this commit were applied by an earlier run, so the admin:org step is skipped. It did not check them on GitHub: if anything was changed or deleted there, run  rm -f $done_mark  and then: $again_cmd"
 fi
-ask "$enabled org ruleset(s) are enabled. They need the admin:org scope, which gh will now ask you to grant (and this script removes again at the end)." \
-  || stop "stopped before the org step; the repo rulesets above are applied"
+ask "$enabled org ruleset(s) are enabled. Applying them needs the admin:org scope: gh asks you to grant it next, and this script removes it again at the end. Go on to the org rulesets?" "go on" \
+  || cancel "the org step was not run; the repo rulesets above are applied"
 gh_status=$(gh auth status -h github.com 2>&1 || true)
 had_admin_org=no
 case "$gh_status" in *admin:org*) had_admin_org=yes ;; esac
