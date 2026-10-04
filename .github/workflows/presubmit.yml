@@ -13,16 +13,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
       - name: read the infra-config pin
         id: pin
         run: python -c "import tomllib; print('commit=' + tomllib.load(open('pins.toml', 'rb'))['infra-config']['commit'])" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: quirq-ai/infra-config
           ref: ${{ steps.pin.outputs.commit }}
@@ -46,6 +46,12 @@ jobs:
           done
       - name: rulesets as code build for every repo (V0-ORG-03)
         run: qqgate settings plan --config .qq/infra-config > /dev/null
+      - name: the admin's apply environment installs from hashed pins only (audit S8)
+        run: |
+          python -m venv "$RUNNER_TEMP/apply"
+          "$RUNNER_TEMP/apply/bin/pip" install --quiet --require-hashes --only-binary :all: -r apply-requirements.txt
+          "$RUNNER_TEMP/apply/bin/pip" install --quiet --no-deps --no-build-isolation -e .
+          "$RUNNER_TEMP/apply/bin/qqgate" settings plan --config .qq/infra-config > /dev/null
       - name: this repo's shipped code is agnostic (V0-GAT-02)
         run: qqgate guard --repo gate --github .
       - name: a planted pytest string in a core repo fails the guard (V0-GAT-02 done-when)
@@ -65,16 +71,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
       - name: read the infra-config pin
         id: pin
         run: python -c "import tomllib; print('commit=' + tomllib.load(open('pins.toml', 'rb'))['infra-config']['commit'])" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: quirq-ai/infra-config
           ref: ${{ steps.pin.outputs.commit }}
@@ -97,9 +103,10 @@ jobs:
         run: |
           infra=$(python -c "import tomllib; print(' '.join('--repo ' + r['name'] for r in tomllib.load(open('settings/github.toml','rb'))['repo'] if r['kind'] == 'infra'))")
           qqgate settings verify --config .qq/infra-config --checkouts .qq/repos || true
-          # Drift (a listed check gone or no longer on the queue's events) fails this job; other
-          # not-ready reasons are follow-ups owned by that repo and show above.
+          # Drift (a listed check gone or no longer on the queue's events, or a repo with a presubmit
+          # on both events but no required check) fails this job; other not-ready reasons are
+          # follow-ups owned by that repo and show above.
           qqgate settings verify --config .qq/infra-config --checkouts .qq/repos $infra > "$RUNNER_TEMP/v.txt" || true
-          if grep -E "is not a job|does not run on" "$RUNNER_TEMP/v.txt"; then
+          if grep -E "is not a job|does not run on|jobs on both events" "$RUNNER_TEMP/v.txt"; then
             echo "::error::settings/github.toml has drifted from an infra repo's workflows"; exit 1
           fi

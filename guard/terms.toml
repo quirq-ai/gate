@@ -63,6 +63,30 @@ term = "pip"
 why = "Installs a pinned qq version into its own venv."
 
 [[allow]]
+repo = "depot"
+path = "src/qqdepot/gate.py"
+term = "python"
+why = "Installs the pinned qq gate package into its own venv (venv/bin/python -m pip)."
+
+[[allow]]
+repo = "depot"
+path = "src/qqdepot/gate.py"
+term = "pip"
+why = "Installs the pinned qq gate package into its own venv."
+
+[[allow]]
+repo = "depot"
+path = "src/qqdepot/watch.py"
+term = "python"
+why = "The usage line names how qq's own module is started (python -m qqdepot.watch)."
+
+[[allow]]
+repo = "sync"
+path = "src/qqsync/guard.py"
+term = "*"
+why = "The no-other-parser check must recognise TOML imports in every language a product repo uses."
+
+[[allow]]
 repo = "sync"
 path = "src/qqsync/manifest.py"
 term = "python"
@@ -86,3 +110,15 @@ repo = "test-pipelines"
 path = "tools/planted_demo.sh"
 term = "*"
 why = "V0-TST-03's done-when demo: builds a throwaway repo with a real test runner. CI-only, not shipped."
+
+[[allow]]
+repo = "release"
+path = "tools/lkgr_demo.py"
+term = "python"
+why = "The done-when demo's usage line names how qq's own script is started; it is not shipped logic."
+
+[[allow]]
+repo = "release"
+path = "tools/rollback_drill.py"
+term = "python"
+why = "The rollback drill's usage line names how qq's own script is started; it is not shipped logic."

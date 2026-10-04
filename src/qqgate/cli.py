@@ -8,8 +8,10 @@
         Pass or refuse one commit. Exit 0 on pass, 1 when refused.
     qqgate settings plan|verify|apply --config DIR [...]   (V0-ORG-03)
         plan: every repo's rulesets as JSON. verify --checkouts DIR: which repos are safe to apply
-        (each required check runs on pull_request and merge_group there). apply: create or update the
-        rulesets of ready repos; dry run unless --yes. Needs an admin token in QQ_GITHUB_TOKEN.
+        (each checkout is its default branch's current head, and each required check runs on
+        pull_request and merge_group there). apply: create or update the rulesets of ready repos; dry
+        run unless --yes. Needs an admin token in QQ_GITHUB_TOKEN; the plan is computed in a child
+        process without it. --org also applies the enabled org rulesets (admin:org).
     qqgate guard --repo NAME [ROOT]   (V0-GAT-02)
         Fail if a core repo's shipped code names a language, build tool or deploy target.
     qqgate queued-at [--event FILE] [--repository OWNER/NAME] [--json]   (V0-GAT-04)
@@ -23,10 +25,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
+import subprocess
 import sys
+import tempfile
+import tomllib
 from pathlib import Path
 
-import os
 
 from qqgate import __version__, backends, config, guard, required, settings, verdict
 from qqgate.errors import GateError, NotOnboarded
@@ -94,54 +100,215 @@ def _plans(args):
     return cfg, backend, s, plans
 
 
+def _plan_json(cfg: dict, backend: str, plans, org: list[dict]) -> dict:
+    out = {"(backend)": backend,
+           "(gate)": {"merge_method": cfg["gate"]["merge_queue"]["merge_method"],
+                      "max_minutes": cfg["gate"]["admission"]["max_minutes"]}}
+    out.update({p.name: {"kind": p.kind, "required": list(p.checks), "rulesets": list(p.rulesets)} for p in plans})
+    out["(org)"] = org
+    return out
+
+
+# The child gets only what the interpreter needs, and an empty HOME: no tokens, no SSH agent, no
+# netrc, no gh or git config. It still runs as the same OS user, so the pinned, reviewed infra-config
+# commit is what makes its code trustworthy; this keeps credentials out of its reach by default.
+_CHILD_ENV = ("PATH", "LANG", "LANGUAGE", "TZ", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT", "VIRTUAL_ENV",
+              "PYTHONIOENCODING", "PYTHONUTF8")
+
+
+def _child_env(home: str) -> dict:
+    env = {k: v for k, v in os.environ.items() if k in _CHILD_ENV or k.startswith("LC_")}
+    env.update(HOME=home, USERPROFILE=home, XDG_CONFIG_HOME=home, PYTHONNOUSERSITE="1")
+    return env
+
+
+def _plan_without_token(args) -> dict:
+    """Run `settings plan` in a child process with no credentials in its environment (audit S8).
+    Planning executes infra-config's tools/qqcfg.py; the process holding the admin token never does,
+    and it rebuilds every ruleset itself from settings (`_trusted_plans`), so the child only supplies
+    product repos' required check names and gate.toml's merge method and admission limit."""
+    cmd = [sys.executable, "-c", "import sys; from qqgate.cli import main; sys.exit(main(sys.argv[1:]))",
+           "settings", "plan", "--config", str(Path(args.config).resolve())]
+    for r in args.repo or ():
+        cmd += ["--repo", r]
+    if args.no_validate:
+        cmd.append("--no-validate")
+    with tempfile.TemporaryDirectory(prefix="qqgate-plan-") as home:
+        try:
+            r = subprocess.run(cmd, env=_child_env(home), cwd=home, capture_output=True, text=True, timeout=600)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise GateError(f"computing the plan failed: {e}") from None
+    if r.returncode != 0:
+        raise GateError(f"computing the plan failed (exit {r.returncode}): {r.stderr.strip()}")
+    try:
+        data = json.loads(r.stdout)
+    except json.JSONDecodeError as e:
+        raise GateError(f"computing the plan printed something other than JSON: {e}") from None
+    if not isinstance(data, dict):
+        raise GateError("computing the plan printed JSON that is not an object")
+    return data
+
+
+CHECK_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,99}$")
+
+
+def _trusted_plans(data: dict, wanted: list[str] | None, s: dict, config_root: Path):
+    """Rebuild the plan in this process from settings `s` (read before the child ran), taking only
+    check names and two gate.toml values from the child, each validated; refuse if the child's
+    rulesets differ. A product repo's gate-computed checks must each be a job in the workflow the
+    pinned infra-config generates for it (read here as YAML, no infra-config code runs)."""
+    backend = data.get("(backend)")
+    if backend != "github":
+        raise GateError(f"plan names backend {backend!r}; only 'github' has settings")
+    mod = backends.load(backend)
+    gate = data.get("(gate)") or {}
+    method, minutes = gate.get("merge_method"), gate.get("max_minutes")
+    if method != s["main"]["merge_method"] or not isinstance(minutes, int) or not 1 <= minutes <= 360:
+        raise GateError(f"plan's gate values {gate!r} are not plausible (merge_method must be "
+                        f"{s['main']['merge_method']!r}, max_minutes 1 to 360)")
+    cfg = {"gate": {"merge_queue": {"merge_method": method}, "admission": {"max_minutes": minutes}},
+           "repos": {"repo": [{"name": r["name"]} for r in s["repo"] if r["kind"] == "product"]}}
+    names = [r["name"] for r in s["repo"] if not wanted or r["name"] in wanted]
+    got = sorted(k for k in data if not k.startswith("("))
+    if got != sorted(names):
+        raise GateError(f"plan lists repos {got}, settings say {sorted(names)}")
+    plans = []
+    for r in (r for r in s["repo"] if r["name"] in names):
+        d = data[r["name"]]
+        required = d.get("required")
+        if d.get("kind") != r["kind"] or not isinstance(required, list) or not all(
+                isinstance(c, str) and CHECK_NAME.match(c) for c in required) or len(set(required)) != len(required):
+            raise GateError(f"plan entry for {r['name']} is not plausible: {d.get('kind')!r} {required!r}")
+        if r["kind"] == "infra" and required != list(r.get("checks", [])):
+            raise GateError(f"plan's checks for {r['name']} {required} differ from settings {r.get('checks', [])}")
+        tail = list(r.get("transitional_checks", []))
+        if r["kind"] == "product" and (not required[len(required) - len(tail):] == tail or len(required) <= len(tail)):
+            raise GateError(f"plan's checks for {r['name']} {required} do not end with transitional {tail}")
+        if r["kind"] == "product":
+            for c in required[:len(required) - len(tail)]:
+                if c not in mod.generated_jobs(config_root, r["name"], c):
+                    raise GateError(f"plan's check {c!r} for {r['name']} is not a job in a workflow the pinned "
+                                    "infra-config generates")
+        rulesets = mod.rulesets(s, cfg, tuple(required), **settings.repo_options(r))
+        if rulesets != d.get("rulesets"):
+            raise GateError(f"plan's rulesets for {r['name']} differ from what settings/github.toml builds")
+        plans.append(settings.RepoPlan(r["name"], r["kind"], tuple(required), tuple(rulesets)))
+    return s, mod, plans, settings.org_workflows(s, cfg)
+
+
+def _config_at_pin(config_root: Path) -> str | None:
+    """None when the infra-config checkout is at pins.toml's commit, else why not."""
+    pins = Path(__file__).resolve().parents[2] / "pins.toml"
+    want = tomllib.loads(pins.read_text())["infra-config"]["commit"]
+    head = settings._git(config_root, "rev-parse", "HEAD")
+    if head != want:
+        return f"--config {config_root} is at {head or 'no commit'}, not pins.toml's infra-config {want}"
+    if settings._git(config_root, "status", "--porcelain", "--untracked-files=no"):
+        return f"--config {config_root} has local changes; use a clean checkout of {want}"
+    return None
+
+
 def _ready(plans, checkouts, s):
+    """Readiness per repo, from a checkout that must be the remote default branch's current head."""
     allow = {r["name"]: tuple(r.get("allow_conditional", ())) for r in s["repo"]}
-    return {p.name: settings.readiness(p, Path(checkouts) / p.name, allow.get(p.name, ())) for p in plans}
+    out, heads = {}, {}
+    for p in plans:
+        co = Path(checkouts) / p.name
+        st = settings.checkout_state(co, f"https://github.com/{s['org']['owner']}/{p.name}")
+        heads[p.name] = st.head
+        found = settings.readiness(p, co, allow.get(p.name, ()), st.branch) if st.head else []
+        out[p.name] = list(st.problems) + [w for w in found if w not in st.problems]
+    return out, heads
+
+
+def _print_ready(plans, ready, heads):
+    for p in plans:
+        why = ready[p.name]
+        at = (heads[p.name] or "no commits")[:12]
+        print(f"{'ready    ' if not why else 'NOT READY'} {p.name:<15} at {at:<12} "
+              f"required: {', '.join(p.checks) or '(none)'}", flush=True)
+        for w in why:
+            print(f"            {w}", flush=True)
 
 
 def cmd_settings(args) -> int:
-    cfg, backend, s, plans = _plans(args)
-    mod = backends.load(backend)
     if args.action == "plan":
-        out = {p.name: {"kind": p.kind, "required": list(p.checks), "rulesets": list(p.rulesets)} for p in plans}
-        if not args.repo:
-            out["(org)"] = {"rulesets": [mod.org_ruleset(s, cfg, repository_id=0)]}  # id looked up at apply
-        print(json.dumps(out, indent=2))
+        cfg, backend, s, plans = _plans(args)
+        print(json.dumps(_plan_json(cfg, backend, plans, settings.org_workflows(s, cfg)), indent=2))
         return 0
     if not args.checkouts:
         raise GateError(f"settings {args.action} needs --checkouts DIR with each repo's default branch")
-    ready = _ready(plans, args.checkouts, s)
-    for p in plans:
-        why = ready[p.name]
-        print(f"{'ready    ' if not why else 'NOT READY'} {p.name:<15} required: {', '.join(p.checks) or '(none yet)'}")
-        for w in why:
-            print(f"            {w}")
     if args.action == "verify":
+        cfg, backend, s, plans = _plans(args)
+        stale = _config_at_pin(Path(args.config))
+        if stale:
+            print(f"WARNING  {stale}", flush=True)
+        ready, heads = _ready(plans, args.checkouts, s)
+        _print_ready(plans, ready, heads)
         return 0 if all(not w for w in ready.values()) else 1
+    return _apply(args)
+
+
+def _apply(args) -> int:
     token = os.environ.get("QQ_GITHUB_TOKEN")
     if not token:
         raise GateError("apply needs an admin token in QQ_GITHUB_TOKEN (for example: QQ_GITHUB_TOKEN=$(gh auth token))")
-    for p in plans:
-        if ready[p.name]:
-            print(f"skip     {p.name}: not ready")
-            continue
-        for line in mod.existing_protection(s["org"]["owner"], p.name,
-                                            {rs["name"] for rs in p.rulesets} | {s["org_workflows"]["ruleset"]}, token):
-            print(f"WARNING  {p.name}: {line}")
-        for line in mod.apply(s["org"]["owner"], p.name, list(p.rulesets), token, write=args.yes):
-            print(line)
-    # Last, and on its own: an org ruleset needs admin:org and a plan that offers required workflows.
-    if args.org and not s["org_workflows"].get("enabled", False):
-        print("qqgate: org ruleset not applied: settings [org_workflows] enabled = false", file=sys.stderr)
-        return 2
-    if args.org:
+    stale = _config_at_pin(Path(args.config))
+    if stale:
+        raise GateError(f"{stale}; check out the pinned commit (docs/apply-settings.md)")
+    settings_file = settings.SETTINGS / "github.toml"
+    before = settings_file.read_bytes()
+    s = settings.load_settings("github")
+    data = _plan_without_token(args)
+    if settings_file.read_bytes() != before:
+        raise GateError(f"{settings_file} changed while the plan was computed; refusing to apply")
+    s, mod, plans, org = _trusted_plans(data, args.repo, s, Path(args.config))
+    ready, heads = _ready(plans, args.checkouts, s)
+    _print_ready(plans, ready, heads)
+    owner = s["org"]["owner"]
+    ours = {rs["name"] for p in plans for rs in p.rulesets} | {w["ruleset"] for w in org}
+    todo = [p for p in plans if not ready[p.name]]
+    for i, p in enumerate(todo):
         try:
-            for line in mod.apply_org(s["org"]["owner"], s, cfg, token, write=args.yes):
-                print(line)
-        except GateError as e:
-            print(f"qqgate: org ruleset not applied: {e}", file=sys.stderr)
+            for line in mod.existing_protection(owner, p.name, ours, token):
+                print(f"WARNING  {p.name}: {line}", flush=True)
+            for line in mod.apply(owner, p.name, list(p.rulesets), token, write=args.yes):
+                print(line, flush=True)
+        except Exception as e:  # any failure part way still reports what is live
+            rest = [q.name for q in todo[i + 1:]]
+            if args.org:
+                rest += [f"org ruleset {w['ruleset']}" for w in org if w.get("enabled", False)]
+            return _stopped(p.name, e, rest, args.yes)
+    not_ready = sum(1 for w in ready.values() if w)
+    if args.org:
+        enabled = [w for w in org if w.get("enabled", False)]
+        if not enabled:
+            print("qqgate: no org ruleset applied: every [[org_workflows]] has enabled = false", file=sys.stderr)
             return 2
-    return 0 if all(not w for w in ready.values()) else 1
+        in_run = {p.name for p in plans if not ready[p.name]}
+        for i, w in enumerate(enabled):
+            targets = [t for t in w["targets"] if t in in_run]
+            if not targets:
+                print(f"skip     org ruleset {w['ruleset']}: none of {', '.join(w['targets'])} is ready in this run",
+                      flush=True)
+                continue
+            try:
+                for line in mod.apply_org(owner, w, targets, token, write=args.yes):
+                    print(line, flush=True)
+            except Exception as e:
+                return _stopped(f"org ruleset {w['ruleset']}", e, [x["ruleset"] for x in enabled[i + 1:]], args.yes)
+    print(f"done     {len(todo)} repo(s) {'written' if args.yes else 'checked (dry run)'}, {not_ready} not ready",
+          flush=True)
+    return 1 if not_ready else 0
+
+
+def _stopped(what: str, e: Exception, rest: list[str], wrote: bool) -> int:
+    print(f"FAILED   {what}: {e if isinstance(e, GateError) else f'{type(e).__name__}: {e}'}", flush=True)
+    if wrote:
+        print("         Every line above without '(dry run)' is already live on GitHub. Not attempted: "
+              f"{', '.join(rest) or 'nothing'}. Re-running is safe: rulesets are created or updated by name.",
+              flush=True)
+    return 2
 
 
 def cmd_guard(args) -> int:
@@ -201,7 +368,7 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--repo", action="append", help="limit to these repos (repeatable)")
     st.add_argument("--checkouts", help="directory holding a default-branch checkout of each repo, by name")
     st.add_argument("--yes", action="store_true", help="apply: really write (default is a dry run)")
-    st.add_argument("--org", action="store_true", help="apply: also the org ruleset (qq-drift workflow), once settings enable it")
+    st.add_argument("--org", action="store_true", help="apply: also the enabled org rulesets (needs an admin:org token; not needed for repo rulesets)")
     st.add_argument("--no-validate", action="store_true", help="skip qqcfg validate (tests only)")
     gd = sub.add_parser("guard", help="agnosticism guard for a core repo (V0-GAT-02)")
     gd.set_defaults(fn=cmd_guard)
