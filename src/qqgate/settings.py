@@ -37,11 +37,14 @@ def load_settings(backend: str, path: Path | None = None) -> dict:
         raise GateError(f"no settings for backend {backend!r} ({path})")
     with path.open("rb") as f:
         data = tomllib.load(f)
-    refs = data.get("release_refs", {})
-    for kind in ("branches", "tags"):
-        bad = [p for p in refs.get(kind, []) if not _matches_nested(p)]
+    patterns = {"release_refs.branches": data.get("release_refs", {}).get("branches", []),
+                "release_refs.tags": data.get("release_refs", {}).get("tags", []),
+                "reserved_tags.names": data.get("reserved_tags", {}).get("names", []),
+                "dependabot.branches": [data["dependabot"]["branches"]] if "dependabot" in data else []}
+    for where, values in patterns.items():
+        bad = [p for p in values if not _matches_nested(p)]
         if bad:
-            raise GateError(f"release_refs.{kind}: {bad!r} {_NESTED}")
+            raise GateError(f"{where}: {bad!r} {_NESTED}")
     return data
 
 

@@ -751,7 +751,7 @@ def test_only_dependabot_changes_its_branches_in_product_repos(s, cfg, config_ro
     plans = plans_by_name(s, cfg, config_root)
     for repo in ("xo-space", "innernet"):
         rs = {r["name"]: r for r in plans[repo].rulesets}["qq-dependabot-branches"]
-        assert rs["conditions"]["ref_name"]["include"] == ["refs/heads/dependabot/**"]
+        assert rs["conditions"]["ref_name"]["include"] == ["refs/heads/dependabot/**/*"]
         assert rs["rules"] == [{"type": "update"}, {"type": "non_fast_forward"}]
         assert rs["bypass_actors"] == [{"actor_id": 29110, "actor_type": "Integration", "bypass_mode": "always"}]
     assert "qq-dependabot-branches" not in {r["name"] for r in plans["sync"].rulesets}
@@ -842,9 +842,67 @@ def test_release_tags_are_plain_patterns(bad):
         settings.repo_options({"name": "x", "release_tags": bad})
 
 
-def test_release_refs_patterns_reach_nested_refs(tmp_path):
+@pytest.mark.parametrize("text, where", [
+    ('[release_refs]\nbranches = ["lkgr"]\ntags = ["channels/**"]\n', "release_refs.tags"),
+    ('[dependabot]\nbranches = "refs/heads/dependabot/**"\n', "dependabot.branches"),
+    ('[reserved_tags]\nnames = ["main", "x/**"]\n', "reserved_tags.names")])
+def test_ref_patterns_reach_nested_refs(tmp_path, text, where):
     """GitHub's `**` without a following `/` matches one level only (FNM_PATHNAME)."""
     p = tmp_path / "github.toml"
-    p.write_text('[release_refs]\nbranches = ["lkgr"]\ntags = ["channels/**"]\n')
-    with pytest.raises(GateError, match="release_refs.tags"):
+    p.write_text(text)
+    with pytest.raises(GateError, match=where):
         settings.load_settings("github", p)
+
+
+def test_dependabot_pattern_reaches_its_branches():
+    s = settings.load_settings("github")
+    assert s["dependabot"]["branches"] == "refs/heads/dependabot/**/*"
+
+
+def test_yes_writes_only_the_plan_the_dry_run_showed(apply_env, config_root, tmp_path, capsys):
+    """Re-check E-2: the write re-plans, so --expect-plan refuses anything the dry run did not show."""
+    sent, live = [], {"action": "create", "warn": []}
+    saved = tmp_path / "plan.json"
+    apply_env.setattr(github, "existing_protection", lambda *a: live["warn"])
+    apply_env.setattr(github, "plan_repo", lambda *a: [
+        {"where": "quirq-ai/sync", "name": "qq-main", "action": live["action"], "diff": []}])
+    apply_env.setattr(github, "write", lambda c, t: sent.append(c) or "quirq-ai/sync: create ruleset qq-main")
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=["--save-plan", str(saved)])) == 0
+    capsys.readouterr()
+    write = ["--yes", "--accept-warnings", "--overwrite", "--expect-plan", str(saved)]
+    live["action"] = "update"   # someone changed it on GitHub between the dry run and the write
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=write)) == 1
+    out = capsys.readouterr().out
+    assert "the plan changed since the dry run" in out and "quirq-ai/sync: update qq-main" in out and sent == []
+    live.update(action="create", warn=["branch protection requires 'x'"])   # a new WARNING
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=write)) == 1
+    assert "WARNING sync: branch protection" in capsys.readouterr().out and sent == []
+    live["warn"] = []
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=write)) == 0
+    assert len(sent) == 1
+
+
+def test_a_repo_that_left_the_plan_only_drops_its_writes(apply_env, config_root, tmp_path, capsys):
+    """One repo moving between the dry run and the write does not hold up the others."""
+    sent = []
+    saved = tmp_path / "plan.json"
+    apply_env.setattr(github, "plan_repo", lambda owner, repo, *a: [
+        {"where": f"quirq-ai/{repo}", "name": "qq-main", "action": "create", "diff": []}])
+    apply_env.setattr(github, "write", lambda c, t: sent.append(c["where"]) or f"{c['where']}: create")
+    assert main(_apply_args(config_root, tmp_path, "sync", "gate", extra=["--save-plan", str(saved)])) == 0
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=["--yes", "--expect-plan", str(saved)])) == 0
+    assert sent == ["quirq-ai/sync"]
+    assert main(_apply_args(config_root, tmp_path, "sync", "gate", "toolchains",
+                            extra=["--yes", "--expect-plan", str(saved)])) == 1
+    assert "quirq-ai/toolchains: create qq-main" in capsys.readouterr().out and sent == ["quirq-ai/sync"]
+
+
+def test_plan_items_change_with_content():
+    """A ruleset whose action, body (an org ruleset's targets) or differences changed is a new item."""
+    from qqgate import cli
+    c = {"where": "org", "name": "qq-x", "action": "unchanged", "method": "PUT", "url": "u",
+         "body": {"conditions": {"repository_id": {"repository_ids": [1]}}}, "diff": []}
+    base = set(cli._plan_items([], [c]))
+    grown = dict(c, body={"conditions": {"repository_id": {"repository_ids": [1, 2]}}})
+    for other in (dict(c, action="update"), grown, dict(c, diff=["rules"])):
+        assert not set(cli._plan_items([], [other])) <= base
