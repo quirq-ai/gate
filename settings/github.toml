@@ -31,6 +31,10 @@ bypass_integration_ids = []
 # qq-drift.yml from main in every product repo, so a PR cannot hand-edit, rename or delete a
 # generated qq-*.yml stub (V0-CFG-02). The product repo list comes from infra-config repos.toml.
 ruleset = "qq-drift"
+# Off until infra-config's qq-drift.yml filters to the default branch and compares against a pinned
+# config instead of moving main; enforcing it before then would turn open product PRs red. Turning
+# it on is a change to this line, reviewed like any policy change.
+enabled = false
 repository = "infra-config"
 path = ".github/workflows/qq-drift.yml"
 ref = "refs/heads/main"
