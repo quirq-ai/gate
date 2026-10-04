@@ -7,6 +7,8 @@ name = "qqgate"
 version = "0.1.0"
 description = "The quirq infra (qq) landing gate: required checks from config and merge-queue settings."
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 # jsonschema: qqcfg validate. pyyaml: reading generated GitHub workflows. qqsync: the only manifest
 # reader, by pinned commit (pins.toml [sync]).

@@ -106,3 +106,7 @@ is one sample.
 
 suraj cannot approve PRs opened under his own account, so an owner-review rule needs a second
 human owner or a bot identity. TODO(suraj): pick one; the gate does not work around it.
+
+## License
+
+Apache License 2.0; see [LICENSE](LICENSE).
