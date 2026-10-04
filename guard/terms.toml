@@ -134,3 +134,9 @@ repo = "test-pipelines"
 path = "tools/bin/qqresults"
 term = "*"
 why = "Launcher for qq's own qqresults from source (audit S8): starts qq's interpreter and says why nothing is installed."
+
+[[allow]]
+repo = "test-pipelines"
+path = "src/qqresults/failures.py"
+term = "java"
+why = "Comment listing ordinary failure texts (a heap OOM) the security classifier must not match; not a target."
