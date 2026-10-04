@@ -434,13 +434,14 @@ def apply_env(monkeypatch, config_root):
     return monkeypatch
 
 
-JOB = {"toolchains": "ci", "sync": "test", "gate": "presubmit"}
+JOB = {"toolchains": ("ci", "promotion-gate"), "sync": ("test",), "gate": ("presubmit",)}
 
 
 def _apply_args(config_root, tmp_path, *repos, extra=()):
     for r in repos:
         if not (tmp_path / r).exists():
-            _checkout(tmp_path, r, f"on: [pull_request, merge_group]\njobs:\n  {JOB[r]}:\n    runs-on: x\n")
+            _checkout(tmp_path, r, "on: [pull_request, merge_group]\njobs:\n"
+                      + "".join(f"  {j}:\n    runs-on: x\n" for j in JOB[r]))
     return (["settings", "apply", "--config", str(config_root), "--checkouts", str(tmp_path)]
             + [a for r in repos for a in ("--repo", r)] + list(extra))
 
