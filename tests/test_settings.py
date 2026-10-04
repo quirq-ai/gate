@@ -895,3 +895,14 @@ def test_a_repo_that_left_the_plan_only_drops_its_writes(apply_env, config_root,
     assert main(_apply_args(config_root, tmp_path, "sync", "gate", "toolchains",
                             extra=["--yes", "--expect-plan", str(saved)])) == 1
     assert "quirq-ai/toolchains: create qq-main" in capsys.readouterr().out and sent == ["quirq-ai/sync"]
+
+
+def test_plan_items_change_with_content():
+    """A ruleset whose action, body (an org ruleset's targets) or differences changed is a new item."""
+    from qqgate import cli
+    c = {"where": "org", "name": "qq-x", "action": "unchanged", "method": "PUT", "url": "u",
+         "body": {"conditions": {"repository_id": {"repository_ids": [1]}}}, "diff": []}
+    base = set(cli._plan_items([], [c]))
+    grown = dict(c, body={"conditions": {"repository_id": {"repository_ids": [1, 2]}}})
+    for other in (dict(c, action="update"), grown, dict(c, diff=["rules"])):
+        assert not set(cli._plan_items([], [other])) <= base
