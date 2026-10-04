@@ -49,7 +49,9 @@ targets = "product"
 # toolchains' promotion gate, always from main, so a PR cannot weaken or impersonate the gate that
 # decides what promoted.toml may say (toolchains audit; its gate.py handles this pull_request run).
 ruleset = "qq-toolchains-promotion-gate"
-enabled = true
+# Off until promotion-gate.yml stops using cancel-in-progress, which GitHub says a ruleset workflow
+# must not (a cancelled run blocks the PR until re-run); apply --org refuses it until then.
+enabled = false
 repository = "toolchains"
 path = ".github/workflows/promotion-gate.yml"
 ref = "refs/heads/main"
@@ -62,25 +64,27 @@ targets = ["toolchains"]
 # apply --org checks the pinned file: on pull_request and merge_group, no path filter, no job that can
 # skip (the only job `if:` allowed is `github.repository == 'quirq-ai/<repo>'`) and no job or step
 # with continue-on-error. What the steps run is reviewed in infra-config at the pinned commit.
+# Off: the files at this sha use cancel-in-progress, which GitHub says a ruleset workflow must not;
+# infra-config regenerates them, then `sha` moves and both are enabled.
 # A builder change in infra-config reaches these only when `sha` moves here (a reviewed gate PR); a
 # renamed builder renames the file, so `path` changes with it.
 ruleset = "qq-xo-space-presubmit-pinned"
-enabled = true
+enabled = false
 pinned = true                        # one target, named in the file; sha required to enable
 repository = "infra-config"
 path = ".github/workflows/qq-required-xo-space-presubmit.yml"
 ref = "refs/heads/main"
-sha = "c5e81c04998240dd08a29c4dc85a485944a44910"   # infra-config #15 (bbb4dd9) on main
+sha = "c5e81c04998240dd08a29c4dc85a485944a44910"   # infra-config main at #17 (files from #15)
 targets = ["xo-space"]
 
 [[org_workflows]]
 ruleset = "qq-innernet-presubmit-pinned"
-enabled = true
+enabled = false
 pinned = true
 repository = "infra-config"
 path = ".github/workflows/qq-required-innernet-presubmit.yml"
 ref = "refs/heads/main"
-sha = "c5e81c04998240dd08a29c4dc85a485944a44910"   # infra-config #15 (bbb4dd9) on main
+sha = "c5e81c04998240dd08a29c4dc85a485944a44910"   # infra-config main at #17 (files from #15)
 targets = ["innernet"]
 
 # --- product repos (required checks from infra-config) ---------------------------------------

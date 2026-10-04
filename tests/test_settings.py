@@ -162,7 +162,7 @@ def test_org_rulesets_run_a_workflow_from_another_repos_main(s, cfg):
     org = {w["ruleset"]: w for w in settings.org_workflows(s, cfg)}
     assert org["qq-drift"]["targets"] == ["innernet", "xo-space"] and org["qq-drift"]["enabled"] is False
     tc = org["qq-toolchains-promotion-gate"]
-    assert tc["targets"] == ["toolchains"] and tc["enabled"] is True
+    assert tc["targets"] == ["toolchains"] and tc["enabled"] is False   # until it drops cancel-in-progress
     rs = github.org_ruleset(tc, ["toolchains"], repository_id=42)
     assert rs["conditions"]["repository_name"]["include"] == ["toolchains"]
     assert rs["rules"][0]["parameters"]["workflows"][0] == {
@@ -241,6 +241,9 @@ def test_apply_org_refuses_a_sha_that_is_not_on_the_branch(monkeypatch, status, 
     (GOOD_PINNED.replace("    runs-on:", "    continue-on-error: true\n    runs-on:"), "continue-on-error"),
     (GOOD_PINNED.replace("    branches: [main]", "    branches: [dev]"), "never for PRs into main"),
     (GOOD_PINNED.replace('steps: [{run: "true"}]', 'steps: [{run: "true", continue-on-error: true}]'), "step 1"),
+    (GOOD_PINNED.replace("jobs:", "concurrency: {group: g, cancel-in-progress: true}\njobs:"), "cancel-in-progress"),
+    (GOOD_PINNED.replace("    runs-on:", "    concurrency: {group: g, cancel-in-progress: true}\n    runs-on:"),
+     "cancel-in-progress"),
     ("jobs: {}\n", "does not run on pull_request"),
 ])
 def test_apply_org_refuses_a_pinned_workflow_that_can_pass_without_judging(monkeypatch, text, why):
@@ -249,17 +252,32 @@ def test_apply_org_refuses_a_pinned_workflow_that_can_pass_without_judging(monke
         list(github.apply_org("quirq-ai", PINNED, ["xo-space"], "t", write=False))
 
 
+def test_apply_org_checks_an_unpinned_file_at_its_branch(monkeypatch):
+    """Every enabled org workflow is read before it is required: GitHub says a ruleset workflow must
+    not cancel in progress (toolchains' promotion-gate.yml does, for pull_request_target)."""
+    w = {"ruleset": "t", "repository": "toolchains", "path": ".github/workflows/promotion-gate.yml",
+         "ref": "refs/heads/main"}
+    gate_yml = ("on:\n  pull_request_target:\n  merge_group:\nconcurrency:\n  group: g\n"
+                "  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}\njobs:\n  gate: {runs-on: x}\n")
+    seen = _fake_github(monkeypatch, text=gate_yml)
+    with pytest.raises(GateError, match="cancel-in-progress"):
+        list(github.apply_org("quirq-ai", w, ["toolchains"], "t", write=False))
+    assert any(u.endswith("/contents/.github/workflows/promotion-gate.yml?ref=refs%2Fheads%2Fmain") for _, u in seen)
+    _fake_github(monkeypatch, text=gate_yml.replace("  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}\n", ""))
+    assert "create ruleset t" in list(github.apply_org("quirq-ai", w, ["toolchains"], "t", write=False))[0]
+
+
 def test_apply_org_refuses_a_pinned_path_that_is_not_a_file(monkeypatch):
     _fake_github(monkeypatch, kind="dir")
     with pytest.raises(GateError, match="is not a file"):
         list(github.apply_org("quirq-ai", PINNED, ["xo-space"], "t", write=False))
 
 
-def test_enabled_pinned_entries_point_at_a_sha(s, cfg):
+def test_pinned_entries_point_at_a_sha(s, cfg):
     org = {w["ruleset"]: w for w in settings.org_workflows(s, cfg)}
     for repo in ("xo-space", "innernet"):
         w = org[f"qq-{repo}-presubmit-pinned"]
-        assert w["enabled"] and w["pinned"] and re.fullmatch(r"[0-9a-f]{40}", w["sha"])
+        assert w["pinned"] and re.fullmatch(r"[0-9a-f]{40}", w["sha"])
 
 
 def test_pinned_entries_need_one_named_target_and_a_sha_to_enable(s, cfg):
@@ -380,6 +398,10 @@ def test_org_ruleset_needs_one_enabled(apply_env, config_root, tmp_path, capsys)
 
 
 def test_org_ruleset_targets_only_repos_ready_in_this_run(apply_env, config_root, tmp_path, capsys):
+    on = copy.deepcopy(settings.load_settings("github"))
+    next(w for w in on["org_workflows"] if w["ruleset"] == "qq-toolchains-promotion-gate")["enabled"] = True
+    real = settings.load_settings
+    apply_env.setattr(settings, "load_settings", lambda b, path=None: copy.deepcopy(on) if b == "github" else real(b))
     apply_env.setattr(github, "apply", lambda *a, **k: iter(()))
     got = []
     apply_env.setattr(github, "apply_org", lambda owner, wf, targets, token, write: got.append(targets) or iter(()))

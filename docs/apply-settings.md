@@ -94,15 +94,18 @@ What blocks which repo today (from `settings verify` on fresh clones, 2026-10-04
 `settings/github.toml` `[[org_workflows]]` lists org rulesets that run a workflow from another
 repo's `main` on every PR and queue entry, so a PR cannot satisfy them with its own same-named job:
 
-- `qq-toolchains-promotion-gate` (enabled): toolchains' `promotion-gate.yml` in toolchains.
-- `qq-xo-space-presubmit-pinned` and `qq-innernet-presubmit-pinned` (enabled): each product repo's
+- `qq-toolchains-promotion-gate` (off for now): toolchains' `promotion-gate.yml` in toolchains. It
+  stays off until that file drops `cancel-in-progress`.
+- `qq-xo-space-presubmit-pinned` and `qq-innernet-presubmit-pinned` (off for now): each product repo's
   presubmit, run from infra-config's `.github/workflows/qq-required-<repo>-presubmit.yml` at a pinned
   commit (`sha`), so neither a PR nor a dependency roll can change the workflow that judges it.
-  rollers auto-lands only into a repo that has one. Pinned to infra-config `c5e81c0` (#15).
+  rollers auto-lands only into a repo that has one. They stay off until infra-config's files drop
+  `cancel-in-progress` (GitHub: a ruleset workflow must not use it); then `sha` moves and they are
+  enabled.
   `apply --org` checks that the pinned commit is on
   infra-config's `main` and that the file there runs on `pull_request` and `merge_group` with no path
   filter, no job that can skip (the only job `if:` allowed is the repository guard) and no job or step
-  with `continue-on-error`. What the steps run is reviewed in infra-config at the pinned commit.
+  with `continue-on-error`, and no `cancel-in-progress`. What the steps run is reviewed in infra-config at the pinned commit.
   The pin fixes the workflow file, not the code it runs: a PR can still change the repo's tests or
   scripts. Owner review of those paths is V0-GAT-03, which waits on owners (ORG-02).
 - `qq-drift` (off): infra-config's `qq-drift.yml` in the product repos. It stays off until
@@ -118,6 +121,11 @@ How GitHub runs these (docs: "Available rules for rulesets", "Troubleshooting ru
 - It does not run for a PR opened or updated by a workflow's `GITHUB_TOKEN`; such a PR waits until
   someone or an App token pushes to it. qq's bots open PRs with their own App tokens.
 - PRs already open when the ruleset is created get it on their next push.
+
+`apply --org` reads each enabled entry's file (at its `sha`, or its branch) and refuses one that does
+not run on `merge_group` and a pull request event, or that cancels in progress.
+
+Today every entry is off (see above), so `--org` has nothing to apply yet and says so.
 
 Applying them is a second run, after the repo rulesets: `gh auth refresh -s admin:org`, then the
 same `apply` command with `--org` added (dry run first). An org ruleset only targets repos that are

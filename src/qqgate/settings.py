@@ -340,12 +340,14 @@ def org_workflows(s: dict, cfg: dict) -> list[dict]:
     return out
 
 
-def pinned_workflow_problems(text: str, repository: str, default_branch: str = "main") -> list[str]:
-    """Why a required (org ruleset) workflow could pass without judging `repository` (owner/name),
-    or never report. GitHub counts a skipped job as passing, so the only job-level `if:` allowed is
-    the repository guard that keeps the file from running in its source repo; no job or step may
-    continue on error. Step-level `if:` is not judged: what the steps run is reviewed in the source
-    repo, whose commit the ruleset pins."""
+def _cancels(c) -> bool:
+    return isinstance(c, dict) and c.get("cancel-in-progress") not in (None, False)
+
+
+def ruleset_workflow_problems(text: str) -> list[str]:
+    """Why GitHub could not run this file as an org ruleset workflow, or a run could block a PR or
+    queue entry until someone re-runs it ("Troubleshooting rules"): it must run on merge_group and
+    pull_request or pull_request_target, and must not cancel in progress (an expression counts)."""
     import yaml  # parsed only here and when reading workflows
     try:
         doc = yaml.safe_load(text)
@@ -354,18 +356,44 @@ def pinned_workflow_problems(text: str, repository: str, default_branch: str = "
     if not isinstance(doc, dict):
         return ["not a workflow"]
     out = []
-    events, filtered, pr, mg = _events(doc.get("on", doc.get(True)))
-    for e in ("pull_request", "merge_group"):
-        if e not in events:
-            out.append(f"does not run on {e}")
-    if filtered:
-        out.append("is path-filtered, so a PR touching other paths never gets it")
-    out += _pr_problems("the workflow", [pr], default_branch, [mg])
+    events = _events(doc.get("on", doc.get(True)))[0]
+    if "merge_group" not in events:
+        out.append("does not run on merge_group")
+    if not events & {"pull_request", "pull_request_target"}:
+        out.append("does not run on pull_request or pull_request_target")
+    if _cancels(doc.get("concurrency")):
+        out.append("its concurrency has cancel-in-progress, which a ruleset workflow must not use")
     jobs = doc.get("jobs") if isinstance(doc.get("jobs"), dict) else {}
     if not jobs:
         out.append("has no jobs")
-    guard = f"github.repository == '{repository}'"
     for job_id, job in jobs.items():
+        if isinstance(job, dict) and _cancels(job.get("concurrency")):
+            out.append(f"job {job_id!r} concurrency has cancel-in-progress, which a ruleset workflow must not use")
+    return out
+
+
+def pinned_workflow_problems(text: str, repository: str, default_branch: str = "main") -> list[str]:
+    """Why a pinned org ruleset workflow could pass without judging `repository` (owner/name), on
+    top of ruleset_workflow_problems. GitHub counts a skipped job as passing, so the only job-level
+    `if:` allowed is the repository guard that keeps the file from running in its source repo, and
+    no job or step may continue on error. Step-level `if:` is not judged: what the steps run is
+    reviewed in the source repo, whose commit the ruleset pins."""
+    import yaml
+    out = ruleset_workflow_problems(text)
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return out
+    if not isinstance(doc, dict):
+        return out
+    events, filtered, pr, mg = _events(doc.get("on", doc.get(True)))
+    if "pull_request" not in events:
+        out.append("does not run on pull_request")
+    if filtered:
+        out.append("is path-filtered")
+    out += _pr_problems("the workflow", [pr], default_branch, [mg])
+    guard = f"github.repository == '{repository}'"
+    for job_id, job in (doc.get("jobs") if isinstance(doc.get("jobs"), dict) else {}).items():
         job = job if isinstance(job, dict) else {}
         cond = str(job.get("if", "")).strip()
         if cond.startswith("${{") and cond.endswith("}}"):
