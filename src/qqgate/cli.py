@@ -24,6 +24,7 @@ rule, verdict) the repo is not in repos.toml, so no gate applies (--json: {"onbo
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -338,9 +339,17 @@ def _apply(args) -> int:
         return _stopped("reading GitHub", e, [], False)
     not_ready = sum(1 for w in ready.values() if w)
     todo = [c for c in changes if c["action"] != "unchanged"]
+    digest = _plan_digest(warnings, changes, skipped_org, sorted(n for n, w in ready.items() if w))
+    print(f"digest   {digest}", flush=True)
     if not args.yes:
         print(f"done     dry run: {len(todo)} write(s) planned, {not_ready} repo(s) not ready", flush=True)
         return 1 if not_ready or skipped_org else 0
+    if args.expect_plan and args.expect_plan != digest:
+        # The write re-plans from scratch; a repo that turned ready, a new WARNING or a newly differing
+        # ruleset since the dry run would otherwise be written under a yes that never saw it (E-2).
+        print(f"REFUSED  nothing written: the plan changed since the dry run (digest {digest}, the dry run "
+              f"showed {args.expect_plan}); run the dry run again and review it", flush=True)
+        return 1
     refuse = []
     if warnings and not args.accept_warnings:
         refuse.append("WARNING lines above (review them, then add --accept-warnings)")
@@ -361,6 +370,16 @@ def _apply(args) -> int:
     print(f"done     {len(todo)} write(s), {len(changes) - len(todo)} unchanged, {not_ready} repo(s) not ready",
           flush=True)
     return 1 if not_ready or skipped_org else 0
+
+
+def _plan_digest(warnings: list[str], changes: list[dict], skipped_org: list[str], not_ready: list[str]) -> str:
+    """What a dry run showed, as one hash: every WARNING, every change with its body and differences,
+    and which repos and org rulesets were left out. `apply --yes --expect-plan` writes only if its own
+    plan hashes the same, so the yes covers exactly what was shown."""
+    shown = {"warnings": warnings, "skipped_org": skipped_org, "not_ready": not_ready,
+             "changes": [{k: c.get(k) for k in ("where", "name", "action", "method", "url", "body", "diff")}
+                         for c in changes]}
+    return hashlib.sha256(json.dumps(shown, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def _stopped(what: str, e: Exception, rest: list[str], wrote: bool) -> int:
@@ -435,6 +454,8 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--org", action="store_true", help="apply: also the enabled org rulesets (needs an admin:org token; not needed for repo rulesets)")
     st.add_argument("--accept-warnings", action="store_true", help="apply --yes: write although WARNING lines were printed")
     st.add_argument("--overwrite", action="store_true", help="apply --yes: replace live rulesets of our names that differ")
+    st.add_argument("--expect-plan", metavar="DIGEST",
+                    help="apply --yes: write only if the plan's digest is this one (the dry run's `digest` line)")
     st.add_argument("--no-validate", action="store_true", help="skip qqcfg validate (tests only)")
     gd = sub.add_parser("guard", help="agnosticism guard for a core repo (V0-GAT-02)")
     gd.set_defaults(fn=cmd_guard)

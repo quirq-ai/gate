@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Apply the gate's settings: the one command in docs/apply-settings.md (V0-ORG-03, an org admin runs it).
-# Run from the same directory every time; it reuses ./qq-gate when it exists:
+# Run from the same directory every time; each run clones ./qq-gate fresh, so nothing an earlier
+# run left in it (an edited script, a package in the venv) can run:
 #
-#   { [ -d qq-gate ] || git clone -q https://github.com/quirq-ai/gate qq-gate; } && cd qq-gate && git fetch -q origin && git checkout -q <COMMIT> && scripts/apply.sh
+#   rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && (cd qq-gate && git checkout -q <COMMIT> && scripts/apply.sh)
 #
-# It sets up a hashed venv, clones infra-config at the pinned commit and every repo fresh, runs
+# It sets up a new hashed venv, clones infra-config at the pinned commit and every repo fresh, runs
 # verify and a dry run, and writes only after you type `yes`. A repo that moves during the run is
 # cloned again and offered again. If an org ruleset is enabled in settings/github.toml it then asks
 # gh for admin:org, applies those, and drops the scope again; a re-run of the same commit that
-# already applied them skips that step. Nothing is written before a `yes`. Re-running is safe:
+# already applied them skips that step (../.qq-gate-org-done; delete it after any change on GitHub). Nothing is written before a `yes`. Re-running is safe:
 # rulesets are created or updated by name.
 set -euo pipefail
 
@@ -47,7 +48,7 @@ fi
 
 # 2. Hashed, fully pinned dependencies only; nothing is resolved at install time.
 say "Setting up .venv"
-python3 -m venv .venv
+python3 -m venv --clear .venv   # never reuse what an earlier run installed
 .venv/bin/pip install -q --disable-pip-version-check --require-hashes --only-binary :all: -r apply-requirements.txt
 .venv/bin/pip install -q --disable-pip-version-check --no-deps --no-build-isolation -e .
 py=.venv/bin/python
@@ -101,7 +102,7 @@ done
 # that differs, a yes for the plan, then the write. A repo that moved between clone and write is
 # cloned again and offered again on its own, up to three rounds.
 phase() {
-  local what=$1 round only=() f again bad=0 org=no
+  local what=$1 round only=() f again bad=0 org=no digest
   case " $* " in *" --org "*) org=yes ;; esac
   shift
   for round in 1 2 3; do
@@ -120,9 +121,16 @@ phase() {
       f+=(--overwrite)
     fi
     if grep -Eq '^plan .*: (create|update) ruleset' .qq/dry.txt; then
+      digest=$(awk '/^digest /{print $2}' .qq/dry.txt)
+      [ -n "$digest" ] || die "the dry run of $what printed no digest; nothing more was written"
       ask "Write every 'plan' line above to GitHub (for $what, and any repo ruleset listed with them)?" || stop "stopped before writing $what; nothing more was written"
       say "Writing $what"
-      qq settings apply "${args[@]}" "$@" ${only[@]+"${only[@]}"} --yes ${f[@]+"${f[@]}"}
+      # --expect-plan: the write re-plans, and refuses unless that plan is exactly the one shown above.
+      qq settings apply "${args[@]}" "$@" ${only[@]+"${only[@]}"} --yes --expect-plan "$digest" ${f[@]+"${f[@]}"}
+      if grep -q 'the plan changed since the dry run' "$log"; then
+        say "Something changed between the dry run and the write, so nothing was written; here is the new dry run"
+        continue
+      fi
     else
       echo "Nothing to write for $what."
     fi
@@ -145,7 +153,7 @@ phase() {
       [ "$org" = yes ] || only+=(--repo "$r")
     done
   done
-  echo "Still moving after three rounds: $(echo $again). Run the command again later."
+  echo "Still changing after three rounds${again:+: $(echo $again)}. Run the command again later."
   status=1
 }
 
@@ -158,9 +166,10 @@ enabled=$("$py" -c "import tomllib; print(sum(1 for w in tomllib.load(open('sett
 if [ "$enabled" = 0 ]; then
   finish "No org ruleset is enabled in settings/github.toml, so there is no admin:org step. Done."
 fi
-done_mark=.apply-org-done   # untracked; holds the gate commit whose org rulesets were applied
+# Outside the clone, which every run replaces; holds the gate commit whose org rulesets were applied.
+done_mark="$(cd .. && pwd)/.qq-gate-org-done"
 if [ "$(cat "$done_mark" 2>/dev/null || true)" = "$(git rev-parse HEAD)" ]; then
-  finish "The org rulesets of this commit were applied by an earlier run, so the admin:org step is skipped (it did not check them for edits made on GitHub since; delete $done_mark to run it again). Done."
+  finish "The org rulesets of this commit were applied by an earlier run, so the admin:org step is skipped. It did not check them on GitHub: if anything was changed or deleted there, run  rm -f $done_mark  and the command again. Done."
 fi
 ask "$enabled org ruleset(s) are enabled. They need the admin:org scope, which gh will now ask you to grant (and this script removes again at the end)." \
   || stop "stopped before the org step; the repo rulesets above are applied"

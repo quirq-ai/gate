@@ -11,21 +11,32 @@ export a token: qqgate asks `gh auth token` itself, after the step that runs inf
 has exited.
 
 ```sh
-{ [ -d qq-gate ] || git clone -q https://github.com/quirq-ai/gate qq-gate; } && cd qq-gate && git fetch -q origin && git checkout -q <COMMIT> && scripts/apply.sh
+rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && (cd qq-gate && git checkout -q <COMMIT> && scripts/apply.sh)
 ```
 
-Run it from the same directory every time: the first run clones `qq-gate`, a re-run reuses it
-(fetching and checking out the commit again), so the same line works for both.
+Run it from the same directory every time (an empty one the first time); your shell stays in that
+directory. Each run clones `qq-gate`
+fresh and builds its `.venv` from scratch, so nothing left in an earlier clone (an edited script, a
+package in the venv) can run. The one file kept between runs is `.qq-gate-org-done`, next to
+`qq-gate`, outside the clone.
+
+**If anything was changed or deleted on GitHub** (a ruleset edited or removed in the UI, or one that
+looks off): run `rm -f .qq-gate-org-done` in that same directory, then the command again. Without
+that, a re-run of a commit whose org rulesets were already applied skips the org step and does not
+look at them on GitHub. The repo rulesets are always checked.
 
 [`scripts/apply.sh`](../scripts/apply.sh) then:
 
 1. Checks the tools, that `gh` is logged in and that the gate checkout is clean.
-2. Makes `.venv` from `apply-requirements.txt` (hashed, fully pinned, wheels only).
+2. Makes a new `.venv` (`--clear`) from `apply-requirements.txt` (hashed, fully pinned, wheels only).
 3. Clones infra-config at the commit `pins.toml` names, and every repo in `settings/github.toml`
    fresh into `.qq/repos` (re-running clones again, so nothing is stale).
 4. Runs `settings verify` (which repos are ready), cloning again any repo that moved since its
    clone, then a dry run (GETs only), and prints them.
-5. Asks you to type `yes` before writing. It asks separately, first, if the dry run printed a
+5. Asks you to type `yes` before writing, and writes only the plan you saw: the dry run prints a
+   `digest` of everything it showed (each change, WARNING, and what it left out), and the write
+   refuses unless its own plan has the same digest. If something changed in between, nothing is
+   written and the dry run is shown again. It asks separately, first, if the dry run printed a
    `WARNING` (other protection already on a repo, see below) or a ruleset marked `differs` (one of
    ours that is not what settings say: settings changed, or someone edited it on GitHub; writing
    replaces it, so a bypass added in the UI is removed).
@@ -37,17 +48,18 @@ Run it from the same directory every time: the first run clones `qq-gate`, a re-
    again, writes, and on exit runs `gh auth refresh -h github.com --remove-scopes admin:org` (unless
    gh already had that scope before; with the scope already there it does not ask gh at all). The
    org run re-plans the repo rulesets too; they show as `unchanged` and are not written again. Once
-   the org rulesets of a commit are applied, the script records that commit in `.apply-org-done`,
-   and a re-run of the same commit skips the org step and its browser prompts, without checking the
-   org rulesets for edits made on GitHub since (delete the file to run it again).
+   the org rulesets of a commit are applied, the script records that commit in `.qq-gate-org-done`
+   (next to `qq-gate`), and a re-run of the same commit skips the org step and its browser prompts,
+   without checking the org rulesets for edits made on GitHub since (see above: delete the file to
+   run it again).
 
 Nothing is written before a `yes`. Exit 0 means everything is applied; 1 means something was not
 ready, skipped or refused, or you answered something other than `yes` (the output says what; fix it
 and run the command again); 2 means an error stopped it. The script refuses to start while
 `GH_TOKEN` or `GITHUB_TOKEN` is set, since the org step refreshes gh's stored login. Re-running is always safe.
 
-The script calls `qqgate settings verify` and `qqgate settings apply` (`--yes`, `--accept-warnings`,
-`--overwrite`, `--org`); each refuses on its own what the script asks about, so running them by hand
+The script calls `qqgate settings verify` and `qqgate settings apply` (`--yes`, `--expect-plan`,
+`--accept-warnings`, `--overwrite`, `--org`); each refuses on its own what the script asks about, so running them by hand
 is no less safe.
 
 ## What a run does and does not do
@@ -99,15 +111,13 @@ is no less safe.
 - `qq-release-tags`, in depot: no tag (`**/*`, nested ones too) may be created, moved or deleted
   except by the release executor (not decided yet, so by nobody, admins included). depot's pins
   trust its tags: a version-only pin, such as xo-space's and innernet's `[qq] version = "0.1.0"`,
-  installs tag `v<version>`, and a `git:` digest must be on a branch or tag. So depot `v0.1.0`
-  cannot be cut, by hand or otherwise, until the release executor exists (neither product's CI
-  installs qq yet). This does not close the branch half: anyone with write access can still push
-  a branch at any commit, and depot counts it for a `git:` digest; narrowing that to tags is a
-  depot change. Other qq repos pin each other by commit and toolchains checks digests, so no other
-  pins trust tags. xo-space's `v*` tags start its container publish; they are not locked, because
+  installs tag `v<version>`, and a `git:` commit must be on main or a `v*` tag (depot #16; main
+  is locked by `qq-main`). So depot `v0.1.0` cannot be cut, by hand or otherwise, until the
+  release executor exists (neither product's CI installs qq yet). Other qq repos pin each other by
+  commit and toolchains checks digests, so no other pins trust tags. xo-space's `v*` tags start its container publish; they are not locked, because
   suraj cuts them by hand (TODO(suraj): who may create them).
 - Not in this apply: `qq-dependabot-branches` (only Dependabot may push to or force-push
-  `dependabot/**` in xo-space and innernet). It is built only for repos with
+  `dependabot/**/*` in xo-space and innernet). It is built only for repos with
   `dependabot_branches = true`, which is false for both today. Its bypass names the Dependabot app
   by id 29110, which could not be checked from here (`gh api /apps/dependabot --jq .id` shows the
   real one), and it is what lets rollers auto-land Dependabot rolls, which stay off until rollers'

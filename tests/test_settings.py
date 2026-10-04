@@ -751,7 +751,7 @@ def test_only_dependabot_changes_its_branches_in_product_repos(s, cfg, config_ro
     plans = plans_by_name(s, cfg, config_root)
     for repo in ("xo-space", "innernet"):
         rs = {r["name"]: r for r in plans[repo].rulesets}["qq-dependabot-branches"]
-        assert rs["conditions"]["ref_name"]["include"] == ["refs/heads/dependabot/**"]
+        assert rs["conditions"]["ref_name"]["include"] == ["refs/heads/dependabot/**/*"]
         assert rs["rules"] == [{"type": "update"}, {"type": "non_fast_forward"}]
         assert rs["bypass_actors"] == [{"actor_id": 29110, "actor_type": "Integration", "bypass_mode": "always"}]
     assert "qq-dependabot-branches" not in {r["name"] for r in plans["sync"].rulesets}
@@ -842,9 +842,42 @@ def test_release_tags_are_plain_patterns(bad):
         settings.repo_options({"name": "x", "release_tags": bad})
 
 
-def test_release_refs_patterns_reach_nested_refs(tmp_path):
+@pytest.mark.parametrize("text, where", [
+    ('[release_refs]\nbranches = ["lkgr"]\ntags = ["channels/**"]\n', "release_refs.tags"),
+    ('[dependabot]\nbranches = "refs/heads/dependabot/**"\n', "dependabot.branches"),
+    ('[reserved_tags]\nnames = ["main", "x/**"]\n', "reserved_tags.names")])
+def test_ref_patterns_reach_nested_refs(tmp_path, text, where):
     """GitHub's `**` without a following `/` matches one level only (FNM_PATHNAME)."""
     p = tmp_path / "github.toml"
-    p.write_text('[release_refs]\nbranches = ["lkgr"]\ntags = ["channels/**"]\n')
-    with pytest.raises(GateError, match="release_refs.tags"):
+    p.write_text(text)
+    with pytest.raises(GateError, match=where):
         settings.load_settings("github", p)
+
+
+def test_dependabot_pattern_reaches_its_branches():
+    s = settings.load_settings("github")
+    assert s["dependabot"]["branches"] == "refs/heads/dependabot/**/*"
+
+
+def test_yes_writes_only_the_plan_the_dry_run_showed(apply_env, config_root, tmp_path, capsys):
+    """Re-check E-2: the write re-plans, so --expect-plan refuses unless it matches the dry run."""
+    import re as _re
+    sent, live = [], {"action": "create"}
+    apply_env.setattr(github, "plan_repo", lambda *a: [
+        {"where": "quirq-ai/sync", "name": "qq-main", "action": live["action"], "diff": []}])
+    apply_env.setattr(github, "write", lambda c, t: sent.append(c) or "quirq-ai/sync: create ruleset qq-main")
+    assert main(_apply_args(config_root, tmp_path, "sync")) == 0
+    digest = _re.search(r"^digest   ([0-9a-f]{64})$", capsys.readouterr().out, _re.M).group(1)
+    live["action"] = "update"   # someone changed it on GitHub between the dry run and the write
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=["--yes", "--overwrite", "--expect-plan", digest])) == 1
+    assert "the plan changed since the dry run" in capsys.readouterr().out and sent == []
+    live["action"] = "create"
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=["--yes", "--expect-plan", digest])) == 0
+    assert len(sent) == 1
+
+
+def test_digest_covers_repos_left_out_and_warnings():
+    from qqgate import cli
+    base = cli._plan_digest([], [], [], [])
+    assert len({base, cli._plan_digest(["w"], [], [], []), cli._plan_digest([], [], [], ["depot"]),
+                cli._plan_digest([], [], ["qq-drift"], [])}) == 4
