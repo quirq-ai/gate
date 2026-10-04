@@ -39,6 +39,8 @@ jobs:
       - name: a red PR is refused in xo-space and innernet (V0-GAT-01 done-when, offline half)
         run: |
           for repo in xo-space innernet; do
-            rc=0; qqgate verdict --config .qq/infra-config --repo "$repo" --observed tests/fixtures/red.json || rc=$?
-            [ "$rc" -eq 1 ] || { echo "::error::$repo: a red PR was not refused (exit $rc)"; exit 1; }
+            rc=0; qqgate verdict --config .qq/infra-config --repo "$repo" --observed tests/fixtures/red.json --json > "$RUNNER_TEMP/v.json" || rc=$?
+            cat "$RUNNER_TEMP/v.json"
+            [ "$rc" -eq 1 ] && python -c "import json,sys; sys.exit(json.load(open(sys.argv[1]))['verdict'] != 'refused')" "$RUNNER_TEMP/v.json" \
+              || { echo "::error::$repo: a red PR was not refused (exit $rc)"; exit 1; }
           done

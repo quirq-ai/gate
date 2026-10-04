@@ -48,10 +48,17 @@ def cmd_rule(args) -> int:
 def cmd_verdict(args) -> int:
     cfg, req = _required(args)
     if args.observed:
-        observed = json.loads(Path(args.observed).read_text())
+        try:
+            observed = json.loads(Path(args.observed).read_text())
+        except (OSError, json.JSONDecodeError) as e:
+            raise GateError(f"--observed {args.observed}: {e}") from None
+        if not isinstance(observed, dict) or not all(isinstance(k, str) and isinstance(v, str)
+                                                     for k, v in observed.items()):
+            raise GateError(f"--observed {args.observed}: want a JSON object of check name -> conclusion")
     else:
+        mod = backends.load(req.backend)
         source = next(r["source"] for r in cfg["repos"]["repo"] if r["name"] == req.repo)
-        observed = backends.load(req.backend).observe(source, args.sha)
+        observed = mod.observe(source, args.sha, {c.name: mod.workflow_path(c.builder) for c in req.checks})
     v = verdict.evaluate(req, observed)
     print(json.dumps(v.to_json(), indent=2) if args.json else "\n".join(v.lines()))
     return 0 if v.passed else 1
@@ -70,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--config", required=True, help="infra-config checkout (pins.toml [infra-config])")
         p.add_argument("--repo", required=True, help="product repo name from repos.toml")
         p.add_argument("--manifest", help="the repo's infra/repo.toml, read through qqsync")
-        p.add_argument("--no-validate", action="store_true", help="skip qqcfg validate (tests only)")
+        p.add_argument("--no-validate", action="store_true", help=argparse.SUPPRESS)  # tests only
         if name in ("required", "verdict"):
             p.add_argument("--json", action="store_true")
         if name == "verdict":
@@ -82,4 +89,7 @@ def main(argv: list[str] | None = None) -> int:
         return args.fn(args)
     except GateError as e:
         print(f"qqgate: {e}", file=sys.stderr)
+        return 2
+    except Exception as e:  # a crash is "could not decide" (2), never "refused" (1) or "pass" (0)
+        print(f"qqgate: internal error: {type(e).__name__}: {e}", file=sys.stderr)
         return 2
