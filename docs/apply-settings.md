@@ -46,8 +46,8 @@ look at them on GitHub. The repo rulesets are always checked.
 6. Writes the repo rulesets. A repo that moved between its clone and the write is skipped by
    qqgate; the script clones it again and offers just that repo again (dry run and `yes`), up to
    three rounds, so you do not start over.
-7. Only if an org ruleset is enabled in `settings/github.toml` (today: the two pinned product
-   presubmits and toolchains' promotion gate): asks before running `gh auth refresh -h github.com -s admin:org`, shows the org dry run, asks
+7. Only if an org ruleset is enabled in `settings/github.toml` (today none: quirq-ai is on GitHub
+   Free, which has no org rulesets, so the run never asks for admin:org): asks before running `gh auth refresh -h github.com -s admin:org`, shows the org dry run, asks
    again, writes, and on exit runs `gh auth refresh -h github.com --remove-scopes admin:org` (unless
    gh already had that scope before; with the scope already there it does not ask gh at all). The
    org run re-plans the repo rulesets too; they show as `unchanged` and are not written again. Once
@@ -152,17 +152,23 @@ the script clones it again.
 
 ## Org rulesets (`--org`, needs admin:org)
 
+**All off.** quirq-ai is on GitHub Free, which has no org rulesets (the first run's org step got
+"Upgrade to GitHub Team to enable this feature"), and suraj chose no org-wide rules (2026-10-04).
+GitHub's docs also list "Require workflows to pass before merging" for Enterprise Cloud only. What
+they would add, and what guards those paths without them, is under "Without org rulesets" below.
+The rest of this section describes them for a paid plan.
+
 `[[org_workflows]]` in `settings/github.toml` lists org rulesets that run a workflow from another
 repo on every PR and queue entry, so a PR cannot satisfy them with its own same-named job. Turning
 one on or off is a reviewed change to that file, after which the same command applies it.
 
-- `qq-xo-space-presubmit-pinned` and `qq-innernet-presubmit-pinned` (on): each product repo's presubmit,
+- `qq-xo-space-presubmit-pinned` and `qq-innernet-presubmit-pinned` (off): each product repo's presubmit,
   run from infra-config's `.github/workflows/qq-required-<repo>-presubmit.yml` at a pinned commit
   (`sha`), so neither a PR nor a dependency roll can change the workflow that judges it. rollers
   auto-lands only into a repo that has one. Pinned at infra-config `eaa2c88` (#19), whose files
   dropped `cancel-in-progress`; both pass the checks below on a fresh clone. The pin fixes the workflow file, not
   the code it runs: owner review of tests and scripts is V0-GAT-03 (waits on ORG-02 owners).
-- `qq-toolchains-promotion-gate` (on): toolchains' `promotion-gate.yml`, pinned at `eb71c8e`
+- `qq-toolchains-promotion-gate` (off): toolchains' `promotion-gate.yml`, pinned at `eb71c8e`
   (toolchains #13: no `cancel-in-progress`, a 35-minute timeout). The pin fixes the workflow file;
   the gate tools it runs (`tools/gate.py`) still come from toolchains `main`, where `/tools/` needs
   suraj's code-owner approval (toolchains #14).
@@ -186,8 +192,18 @@ How GitHub runs these (docs: "Available rules for rulesets", "Troubleshooting ru
 in a public repo can run in any repo of the org; it runs on `pull_request` (opened, synchronize,
 reopened) and `merge_group` and ignores the workflow's own `branches`, `paths` and `types` filters;
 it does not run for a PR opened or updated with a workflow's `GITHUB_TOKEN` (qq's bots use their own
-App tokens); PRs already open get it on their next push. TODO(suraj): confirm the org's plan offers
-"Require workflows to pass before merging".
+App tokens); PRs already open get it on their next push. The org's plan does not offer them (above).
+
+### Without org rulesets
+
+- A repo's required checks match a job name from GitHub Actions, so a PR that edits its own
+  workflows could make a same-named job pass. What stops that is review of `.github/`: toolchains
+  requires suraj's code-owner review there (toolchains #14); xo-space and innernet do not yet.
+- toolchains' promotion gate is not required at all: it runs on `pull_request_target`, which never
+  runs in the merge queue, so it cannot be a required check. Promotions are guarded only by
+  code-owner review of `tools/`, `toolchains.toml` and `promoted.toml`.
+- rollers lands a Dependabot roll on its own only into a repo with a gate no workflow can fake (a
+  pinned required workflow, or a check from an App other than GitHub Actions), so it stays off.
 
 **If a required workflow blocks every PR** (it fails or never reports): an org owner opens
 github.com/organizations/quirq-ai/settings/rules, opens that ruleset and sets Enforcement to
