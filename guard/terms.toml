@@ -130,6 +130,12 @@ term = "cpython"
 why = "Docstring: why archive containment does not rely on the tarfile filter of the interpreter qq runs on."
 
 [[allow]]
+repo = "depot"
+path = "src/qqdepot/store.py"
+term = "python"
+why = "Docstring: why the tree digest skips __pycache__, which the interpreter qq runs on writes into its own install."
+
+[[allow]]
 repo = "test-pipelines"
 path = "tools/bin/qqresults"
 term = "*"
