@@ -63,9 +63,9 @@ targets = "product"
 # toolchains' promotion gate, always from main, so a PR cannot weaken or impersonate the gate that
 # decides what promoted.toml may say (toolchains audit; its gate.py handles this pull_request run).
 ruleset = "qq-toolchains-promotion-gate"
-# Off until promotion-gate.yml sets timeout-minutes within gate.toml's 40 (it has 45; the queue
-# drops an entry whose check has not reported by then). It dropped cancel-in-progress in toolchains #12.
-enabled = false
+# On from toolchains eb71c8e (#13): no cancel-in-progress (#12) and timeout-minutes 35, within
+# gate.toml's 40 (the queue drops an entry whose check has not reported by then).
+enabled = true
 repository = "toolchains"
 path = ".github/workflows/promotion-gate.yml"
 ref = "refs/heads/main"

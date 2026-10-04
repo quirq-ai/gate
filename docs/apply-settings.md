@@ -27,7 +27,7 @@ git clone -q https://github.com/quirq-ai/gate qq-gate && cd qq-gate && git check
    removed).
 6. Writes the repo rulesets.
 7. Only if an org ruleset is enabled in `settings/github.toml` (today: the two pinned product
-   presubmits): asks before running `gh auth refresh -h github.com -s admin:org`, shows the org dry run, asks
+   presubmits and toolchains' promotion gate): asks before running `gh auth refresh -h github.com -s admin:org`, shows the org dry run, asks
    again, writes, and on exit runs `gh auth refresh -h github.com --remove-scopes admin:org` (unless
    gh already had that scope before). The org run re-plans the repo rulesets too; they show as
    `unchanged` and are not written again.
@@ -121,8 +121,8 @@ one on or off is a reviewed change to that file, after which the same command ap
   auto-lands only into a repo that has one. Pinned at infra-config `eaa2c88` (#19), whose files
   dropped `cancel-in-progress`; both pass the checks below on a fresh clone. The pin fixes the workflow file, not
   the code it runs: owner review of tests and scripts is V0-GAT-03 (waits on ORG-02 owners).
-- `qq-toolchains-promotion-gate` (off): toolchains' `promotion-gate.yml`. It dropped
-  `cancel-in-progress` (toolchains #12); it waits on `timeout-minutes` coming down from 45 to 40 or less.
+- `qq-toolchains-promotion-gate` (on): toolchains' `promotion-gate.yml` from its `main`. Since
+  toolchains #12 and #13 (eb71c8e) it has no `cancel-in-progress` and a 35-minute timeout.
 - `qq-drift` (off): infra-config's `qq-drift.yml` in the product repos. Waits on that file only checking
   the default branch against a pinned config.
 
