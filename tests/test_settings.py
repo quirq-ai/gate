@@ -82,6 +82,15 @@ def test_code_owner_review_is_per_repo(s, cfg, config_root):
     assert owners("toolchains") is True and owners("sync") is False
 
 
+def test_last_push_approval_is_per_repo(s, cfg, config_root):
+    plans = plans_by_name(s, cfg, config_root)
+
+    def last(name):
+        pr = next(r for r in plans[name].rulesets[0]["rules"] if r["type"] == "pull_request")
+        return pr["parameters"]["require_last_push_approval"]
+    assert last("toolchains") is True and last("sync") is False
+
+
 def test_toolchains_queue_merges_one_pr_per_group(s, cfg, config_root):
     plans = plans_by_name(s, cfg, config_root)
 
@@ -433,13 +442,14 @@ def apply_env(monkeypatch, config_root):
     return monkeypatch
 
 
-JOB = {"toolchains": "ci", "sync": "test", "gate": "presubmit"}
+JOB = {"toolchains": ("ci", "promotion-gate"), "sync": ("test",), "gate": ("presubmit",)}
 
 
 def _apply_args(config_root, tmp_path, *repos, extra=()):
     for r in repos:
         if not (tmp_path / r).exists():
-            _checkout(tmp_path, r, f"on: [pull_request, merge_group]\njobs:\n  {JOB[r]}:\n    runs-on: x\n")
+            _checkout(tmp_path, r, "on: [pull_request, merge_group]\njobs:\n"
+                      + "".join(f"  {j}:\n    runs-on: x\n" for j in JOB[r]))
     return (["settings", "apply", "--config", str(config_root), "--checkouts", str(tmp_path)]
             + [a for r in repos for a in ("--repo", r)] + list(extra))
 

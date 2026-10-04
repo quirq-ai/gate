@@ -135,7 +135,7 @@ def _status_checks_rule(names) -> dict:
 
 
 def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_review: bool = False,
-             group_size: int = 5, state_branches: tuple[str, ...] = (),
+             last_push_approval: bool = False, group_size: int = 5, state_branches: tuple[str, ...] = (),
              dependabot_branches: bool = False, release_tags: tuple[str, ...] = ()) -> list[dict]:
     """V0-ORG-03: the repository rulesets (REST: POST /repos/{o}/{r}/rulesets) for one repo."""
     main, refs = settings["main"], settings["release_refs"]
@@ -155,7 +155,9 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
             "dismiss_stale_reviews_on_push": True,
             # Per repo (settings code_owner_review); it only bites for paths CODEOWNERS gives owners.
             "require_code_owner_review": code_owner_review,
-            "require_last_push_approval": False,
+            # Per repo (settings last_push_approval): the newest push needs an approval from someone
+            # other than its pusher, so nothing lands that no reviewer saw.
+            "require_last_push_approval": last_push_approval,
             "required_review_thread_resolution": False,
             "allowed_merge_methods": [main["merge_method"]],
         }},
