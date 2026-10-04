@@ -342,9 +342,10 @@ def org_workflows(s: dict, cfg: dict) -> list[dict]:
 
 def pinned_workflow_problems(text: str, repository: str, default_branch: str = "main") -> list[str]:
     """Why a required (org ruleset) workflow could pass without judging `repository` (owner/name),
-    or never report; empty means it runs every job on every PR and queue entry. GitHub counts a
-    skipped job as passing, so the only job-level `if:` allowed is the repository guard that keeps
-    the file from running in its source repo."""
+    or never report. GitHub counts a skipped job as passing, so the only job-level `if:` allowed is
+    the repository guard that keeps the file from running in its source repo; no job or step may
+    continue on error. Step-level `if:` is not judged: what the steps run is reviewed in the source
+    repo, whose commit the ruleset pins."""
     import yaml  # parsed only here and when reading workflows
     try:
         doc = yaml.safe_load(text)
@@ -375,4 +376,7 @@ def pinned_workflow_problems(text: str, repository: str, default_branch: str = "
             out.append(f"job {job_id!r} calls a reusable workflow")
         if job.get("continue-on-error") not in (None, False):
             out.append(f"job {job_id!r} has continue-on-error, so a failure can pass")
+        for i, step in enumerate(job.get("steps") or [], 1):
+            if isinstance(step, dict) and step.get("continue-on-error") not in (None, False):
+                out.append(f"job {job_id!r} step {i} has continue-on-error, so a failure can pass")
     return out

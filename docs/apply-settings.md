@@ -84,7 +84,7 @@ Each ready repo gets:
   `!` patterns) or type filter that leaves out PRs into the default branch, `merge_group` types
   without `checks_requested`, or a name used by two jobs.
 
-What blocks which repo today (from `settings verify` on fresh clones, 2026-10-04 13:55 UTC):
+What blocks which repo today (from `settings verify` on fresh clones, 2026-10-04 14:05 UTC):
 
 - Every repo: ready. `verify` prints each repo's commit, so a repo that moves between your
   clone and the run shows as not ready; clone again and re-run.
@@ -95,20 +95,27 @@ What blocks which repo today (from `settings verify` on fresh clones, 2026-10-04
 repo's `main` on every PR and queue entry, so a PR cannot satisfy them with its own same-named job:
 
 - `qq-toolchains-promotion-gate` (enabled): toolchains' `promotion-gate.yml` in toolchains.
-- `qq-xo-space-presubmit-pinned` and `qq-innernet-presubmit-pinned` (off): each product repo's
+- `qq-xo-space-presubmit-pinned` and `qq-innernet-presubmit-pinned` (enabled): each product repo's
   presubmit, run from infra-config's `.github/workflows/qq-required-<repo>-presubmit.yml` at a pinned
   commit (`sha`), so neither a PR nor a dependency roll can change the workflow that judges it.
-  rollers auto-lands only into a repo that has one. They are switched on, with their `sha`, once
-  infra-config publishes those files. `apply --org` checks that the pinned commit is on
+  rollers auto-lands only into a repo that has one. Pinned to infra-config `c5e81c0` (#15).
+  `apply --org` checks that the pinned commit is on
   infra-config's `main` and that the file there runs on `pull_request` and `merge_group` with no path
-  filter and no job that can skip or pass on failure (the only `if:` allowed is the repository guard).
+  filter, no job that can skip (the only job `if:` allowed is the repository guard) and no job or step
+  with `continue-on-error`. What the steps run is reviewed in infra-config at the pinned commit.
 - `qq-drift` (off): infra-config's `qq-drift.yml` in the product repos. It stays off until
   infra-config's `qq-drift.yml` only checks the default branch against a pinned config; turning it on
   is a reviewed one-line change.
 
-A ruleset workflow runs only if the repo holding it lets the org's repos use its workflows
-(infra-config: Settings > Actions > General > Access). If it cannot run, every PR into the targets
-waits on it, so check that setting before enabling one.
+How GitHub runs these (docs: "Available rules for rulesets", "Troubleshooting rules"):
+
+- A workflow in a public repo (infra-config, toolchains) can run in any repo of the org; a private
+  one would also need its Actions access setting opened.
+- It runs on `pull_request` (opened, synchronize, reopened) and `merge_group`, and GitHub ignores
+  the workflow's own `branches`, `paths` and `types` filters.
+- It does not run for a PR opened or updated by a workflow's `GITHUB_TOKEN`; such a PR waits until
+  someone or an App token pushes to it. qq's bots open PRs with their own App tokens.
+- PRs already open when the ruleset is created get it on their next push.
 
 Applying them is a second run, after the repo rulesets: `gh auth refresh -s admin:org`, then the
 same `apply` command with `--org` added (dry run first). An org ruleset only targets repos that are

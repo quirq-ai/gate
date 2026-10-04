@@ -96,7 +96,7 @@ is one sample.
 | --- | --- | --- |
 | bootstrap | #1 | merged |
 | V0-GAT-01 | #2 | merged; live demo waits on V0-ORG-03, V0-ONB-01/02 |
-| V0-ORG-03 | #3, #5, #9, #10 | merged; waits on suraj to apply ([docs/apply-settings.md](docs/apply-settings.md)). Pinned product presubmit org rulesets wait on infra-config's files |
+| V0-ORG-03 | #3, #5, #9, #10 | merged; waits on suraj to apply ([docs/apply-settings.md](docs/apply-settings.md)). Pinned product presubmit org rulesets (infra-config c5e81c0) are part of the `--org` step |
 | V0-GAT-02 | #4 | merged |
 | V0-GAT-03 | | waits on V0-ORG-02 (suraj's owners) |
 | V0-GAT-04 | #6 | merged; the sink reads QQ_QUEUED_AT (test-pipelines 1e3ddb1). Numbers appear once infra-config adds the timing step and the queue runs |

@@ -240,6 +240,7 @@ def test_apply_org_refuses_a_sha_that_is_not_on_the_branch(monkeypatch, status, 
     (GOOD_PINNED.replace("quirq-ai/xo-space'", "quirq-ai/innernet'"), "only `github.repository == 'quirq-ai/xo-space'`"),
     (GOOD_PINNED.replace("    runs-on:", "    continue-on-error: true\n    runs-on:"), "continue-on-error"),
     (GOOD_PINNED.replace("    branches: [main]", "    branches: [dev]"), "never for PRs into main"),
+    (GOOD_PINNED.replace('steps: [{run: "true"}]', 'steps: [{run: "true", continue-on-error: true}]'), "step 1"),
     ("jobs: {}\n", "does not run on pull_request"),
 ])
 def test_apply_org_refuses_a_pinned_workflow_that_can_pass_without_judging(monkeypatch, text, why):
@@ -254,13 +255,20 @@ def test_apply_org_refuses_a_pinned_path_that_is_not_a_file(monkeypatch):
         list(github.apply_org("quirq-ai", PINNED, ["xo-space"], "t", write=False))
 
 
+def test_enabled_pinned_entries_point_at_a_sha(s, cfg):
+    org = {w["ruleset"]: w for w in settings.org_workflows(s, cfg)}
+    for repo in ("xo-space", "innernet"):
+        w = org[f"qq-{repo}-presubmit-pinned"]
+        assert w["enabled"] and w["pinned"] and re.fullmatch(r"[0-9a-f]{40}", w["sha"])
+
+
 def test_pinned_entries_need_one_named_target_and_a_sha_to_enable(s, cfg):
     w = s["org_workflows"][2]
     for change, why in (({"targets": ["xo-space", "innernet"]}, "targets one repo"),
                         ({"targets": ["innernet"]}, "targets one repo"),
-                        ({"enabled": True}, "no sha")):
+                        ({"enabled": True, "sha": None}, "no sha")):
         bad = copy.deepcopy(s)
-        bad["org_workflows"][2] = {**w, **change}
+        bad["org_workflows"][2] = {k: v for k, v in {**w, **change}.items() if v is not None}
         with pytest.raises(GateError, match=why):
             settings.org_workflows(bad, cfg)
     ok = copy.deepcopy(s)
