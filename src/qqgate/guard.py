@@ -39,8 +39,7 @@ def load_terms(path: Path | None = None) -> dict:
 
 
 def _matcher(terms: dict) -> re.Pattern:
-    runtime = {t.lower() for t in terms.get("runtime", [])}
-    words = sorted({t.lower() for ts in terms["terms"].values() for t in ts} - runtime, key=len, reverse=True)
+    words = sorted({t.lower() for ts in terms["terms"].values() for t in ts}, key=len, reverse=True)
     return re.compile(r"(?<![A-Za-z0-9])(" + "|".join(re.escape(w) for w in words) + r")(?![A-Za-z0-9])", re.I)
 
 
@@ -57,8 +56,9 @@ def _pieces_py(text: str, path: str) -> list[tuple[int, str, str]]:
     out: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
         line = getattr(node, "lineno", 0)
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            out.append((line, "string", node.value))
+        if isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)):
+            v = node.value if isinstance(node.value, str) else node.value.decode("latin-1")
+            out.append((line, "string", v))
         elif isinstance(node, ast.Name):
             out.append((line, "identifier", node.id))
         elif isinstance(node, ast.Attribute):
@@ -75,6 +75,10 @@ def _pieces_py(text: str, path: str) -> list[tuple[int, str, str]]:
             out.append((line, "identifier", node.arg))
         elif isinstance(node, ast.keyword) and node.arg:
             out.append((line, "identifier", node.arg))
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            out += [(line, "identifier", n) for n in node.names]
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            out.append((line, "identifier", node.name))
     for tok in tokenize.generate_tokens(io.StringIO(text).readline):
         if tok.type == tokenize.COMMENT:
             out.append((tok.start[0], "comment", tok.string))
@@ -86,16 +90,28 @@ MEDIA_TYPE = re.compile(r"\b[a-z]+/vnd\.[A-Za-z0-9.+_-]+")
 
 
 def _split_identifier(s: str) -> str:
-    """'run_pytest' and 'runPytest' -> 'run pytest' so whole-word matching sees the term."""
-    return re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", s).replace("_", " ")
+    """Words an identifier is made of, plus each adjacent pair joined, so whole-word matching sees
+    the term: run_pytest, runPytest, PyTestRunner ("py test", "pytest"), NPMClient ("npm client"),
+    TypeScriptRecipe ("typescript")."""
+    parts = [p.lower() for p in re.findall(r"[A-Z]+(?=[A-Z][a-z]|[0-9]|_|$)|[A-Z]?[a-z]+|[A-Z]+|[0-9]+", s)]
+    pairs = [a + b for a, b in zip(parts, parts[1:])]
+    return " ".join([s.lower(), *parts, *pairs])
 
 
 def scan_file(path: Path, rel: str, terms: dict) -> list[Finding]:
     rx, cat = _matcher(terms), _category(terms)
-    try:
-        text = path.read_text()
-    except UnicodeDecodeError:
+    raw = path.read_bytes()
+    if path.suffix == ".py":
+        try:
+            enc, _ = tokenize.detect_encoding(io.BytesIO(raw).readline)  # honours coding: and the BOM
+            text = raw.decode(enc)
+        except (SyntaxError, LookupError, UnicodeDecodeError) as e:
+            raise GateError(f"{rel}: cannot decode ({e}); the guard refuses unreadable code") from None
+        text = text.removeprefix("\ufeff")
+    elif b"\0" in raw[:8192]:
         return []  # binary files name nothing
+    else:
+        text = raw.decode("utf-8", errors="replace")
     if path.suffix == ".py":
         pieces = [(ln, kind, _split_identifier(t) if kind == "identifier" else t)
                   for ln, kind, t in _pieces_py(text, rel)]
@@ -116,6 +132,8 @@ def _matches(rel: str, patterns: list[str]) -> bool:
 def scan_repo(root: Path, repo: str, terms: dict) -> list[Finding]:
     if repo not in terms["core"]:
         raise GateError(f"{repo!r} is not a core repo (guard/terms.toml core = {terms['core']})")
+    if not root.is_dir():
+        raise GateError(f"{root} is not a checkout; a guard that scans nothing passes nothing")
     allowed = {(a["path"], a["term"].lower()) for a in terms.get("allow", []) if a["repo"] == repo}
     wildcard = {path for path, term in allowed if term == "*"}
     findings = []

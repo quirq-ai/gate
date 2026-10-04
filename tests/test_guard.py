@@ -52,9 +52,30 @@ def test_tests_docs_and_ci_are_not_core(tmp_path, terms):
     assert guard.scan_repo(root, "sync", terms) == []
 
 
-def test_runtime_is_not_a_finding(tmp_path, terms):
-    root = core_repo(tmp_path, {"src/x/m.py": 'cmd = ["python", "-m", "pip", "install"]\n'})
-    assert guard.scan_repo(root, "depot", terms) == []
+def test_language_names_are_findings_outside_reviewed_files(tmp_path, terms):
+    root = core_repo(tmp_path, {"src/x/m.py": 'if kind == "python-service":\n    run("pip install x")\n'})
+    assert {f.term for f in guard.scan_repo(root, "depot", terms)} == {"python", "pip"}
+
+
+@pytest.mark.parametrize("name,term", [("PyTestRunner", "pytest"), ("NPMClient", "npm"),
+                                       ("TypeScriptRecipe", "typescript"), ("run_pytest", "pytest")])
+def test_identifier_shapes(tmp_path, terms, name, term):
+    root = core_repo(tmp_path, {"src/x/m.py": f"class {name}:\n    pass\n"})
+    assert term in {f.term for f in guard.scan_repo(root, "depot", terms)}
+
+
+def test_bytes_bom_and_declared_encoding_are_read(tmp_path, terms):
+    p = tmp_path / "src" / "x"
+    p.mkdir(parents=True)
+    (p / "a.py").write_bytes(b'X = b"pytest"\n')
+    (p / "b.py").write_bytes("\ufeffY = 'vercel'\n".encode("utf-8"))
+    (p / "c.py").write_bytes(b"# -*- coding: latin-1 -*-\nZ = '\xe9 npm'\n")
+    assert {f.term for f in guard.scan_repo(tmp_path, "depot", terms)} == {"pytest", "vercel", "npm"}
+
+
+def test_missing_root_is_an_error(tmp_path, terms):
+    with pytest.raises(GateError, match="not a checkout"):
+        guard.scan_repo(tmp_path / "nope", "sync", terms)
 
 
 def test_media_types_are_formats_not_targets(tmp_path, terms):

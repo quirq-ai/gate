@@ -7,10 +7,6 @@ core = ["depot", "sync", "gate", "test-pipelines", "gardener", "release"]
 scan = ["src/**", "bin/**", "tools/**"]
 skip = ["**/__pycache__/**", "**/*.egg-info/**", "**/*.md"]
 
-# qq's own runtime. Infra repos are written in Python (v0 conventions), so a core tool may name the
-# interpreter and installer that run *it*. The rule is about the repos qq builds, so these never
-# appear in what a core tool says about a target. TODO(expert): narrow to bootstrap paths.
-runtime = ["python", "python3", "pip"]
 
 # Matched as whole words, ignoring case. TODO(expert): grow these lists as kinds are added.
 [terms]
@@ -27,6 +23,56 @@ deploy_target = ["vercel", "netlify", "heroku", "kubernetes", "k8s", "docker", "
 # Reviewed exceptions: one line each, with why. Nothing else silences the guard; there is no inline
 # pragma, because a guard its subject can switch off is not a guard.
 # term = "*" allows every term in that one file.
+# qq itself runs on Python (v0 conventions), so the few places that start *its* interpreter or
+# install *its* packages are listed one by one; anywhere else, python/pip is a finding.
+
+[[allow]]
+repo = "depot"
+path = "bin/qq"
+term = "python3"
+why = "The launcher finds the interpreter that runs qq itself (QQ_PYTHON, default python3)."
+
+[[allow]]
+repo = "depot"
+path = "bin/qq"
+term = "python"
+why = "QQ_PYTHON names the interpreter that runs qq itself."
+
+[[allow]]
+repo = "depot"
+path = "src/qqdepot/bootstrap.py"
+term = "python"
+why = "Bootstraps qq's own venv (bin/python -m pip install qq)."
+
+[[allow]]
+repo = "depot"
+path = "src/qqdepot/bootstrap.py"
+term = "pip"
+why = "Installs qq's own package into its venv."
+
+[[allow]]
+repo = "depot"
+path = "src/qqdepot/pin.py"
+term = "python"
+why = "Installs a pinned qq version into its own venv."
+
+[[allow]]
+repo = "depot"
+path = "src/qqdepot/pin.py"
+term = "pip"
+why = "Installs a pinned qq version into its own venv."
+
+[[allow]]
+repo = "sync"
+path = "src/qqsync/manifest.py"
+term = "python"
+why = "Docstring: the manifest as plain Python data, i.e. qqsync's own return type."
+
+[[allow]]
+repo = "test-pipelines"
+path = "src/qqresults/junit.py"
+term = "python"
+why = "Docstring about qqresults' own normalized records."
 
 [[allow]]
 repo = "gate"

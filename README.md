@@ -68,9 +68,10 @@ creates or updates them by name for ready repos only. An org admin runs `apply`;
 `qqgate guard --repo <core repo> [ROOT]` fails if shipped code in a core repo (depot, sync, gate,
 test-pipelines, gardener, release; plan §5.1) names a language, build tool or deploy target. Python
 files are read with `ast` (identifiers, imports, strings) and `tokenize` (comments); other files are
-grepped. Tests, docs and CI are not core code. The terms, the runtime carve-out (qq itself runs on
-Python, so `python` and `pip` may name *its* interpreter) and the reviewed exceptions are in
-`guard/terms.toml`, a policy file; there is no inline pragma. Each core repo adds
+grepped. Tests, docs and CI are not core code. The terms and the reviewed per-file exceptions (for
+example depot's launcher, which starts qq's own Python) are in `guard/terms.toml`, a policy file;
+there is no inline pragma. Registered media types (`application/vnd.docker...`) are formats, not
+targets, and are skipped. Each core repo adds
 `qqgate guard --repo <name> .` to its presubmit; this repo's `settings-drift` job sweeps them all.
 
 ## v0 status
