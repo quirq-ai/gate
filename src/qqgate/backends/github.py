@@ -23,8 +23,6 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-import yaml
-
 from qqgate.errors import GateError
 from qqgate.required import RequiredSet
 
@@ -60,6 +58,7 @@ def generated_workflow(config_root: Path, repo: str, builder: str) -> Path:
 
 def generated_jobs(config_root: Path, repo: str, builder: str) -> set[str]:
     """Job names in the workflow infra-config generates for a builder; empty if there is none."""
+    import yaml  # here, not at the top: `queued-at` runs with nothing installed (timing action)
     path = generated_workflow(config_root, repo, builder)
     try:
         doc = yaml.safe_load(path.read_text()) if path.is_file() else None
@@ -77,6 +76,7 @@ def workflow_path(builder: str) -> str:
 def check_workflows(config_root: Path, required: RequiredSet) -> list[str]:
     """Every required check must be a job in the workflow infra-config generates for it, triggered
     on pull_request and merge_group. A required check no workflow produces would block every PR."""
+    import yaml  # here, not at the top: `queued-at` runs with nothing installed (timing action)
     problems = []
     for c in required.checks:
         path = generated_workflow(config_root, required.repo, c.builder)
