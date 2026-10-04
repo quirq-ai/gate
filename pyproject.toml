@@ -8,7 +8,13 @@ version = "0.1.0"
 description = "The quirq infra (qq) landing gate: required checks from config and merge-queue settings."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+# jsonschema: qqcfg validate. pyyaml: reading generated GitHub workflows. qqsync: the only manifest
+# reader, by pinned commit (pins.toml [sync]).
+dependencies = [
+  "jsonschema==4.26.0",
+  "pyyaml==6.0.3",
+  "qqsync @ git+https://github.com/quirq-ai/sync@a1cc782991a5cb7b8e3f506e269883be31a9ae6e",
+]
 
 [project.optional-dependencies]
 test = ["pytest==9.1.1"]

@@ -22,12 +22,45 @@ on the merge result (GitHub `merge_group`), not only on the proposed change.
 Out of scope for v0: result reuse, admission-bar enforcement and tree status (v1); cross-repo
 gating and a queue for Launchpad (v2).
 
+## How it works (V0-GAT-01)
+
+- Policy comes only from [infra-config](https://github.com/quirq-ai/infra-config), read at the
+  commit in `pins.toml` through infra-config's own `qqcfg` (`qqcfg validate` must pass first, or the
+  gate refuses to compute anything). Manifests (`infra/repo.toml`) are read only through
+  [sync](https://github.com/quirq-ai/sync) (`qqsync`), also by pinned commit.
+- `gate.toml [merge_queue] required = "blocking-builders"`: every builder in `pipelines.toml` with
+  `blocking = true` for a repo is a required check, named after the builder.
+- Each required check must run on the change and on the exact merge result (triggers `change` and
+  `queue`, GitHub `pull_request` and `merge_group`). A blocking builder without `queue` is an error.
+- A repo with no blocking builder is refused as ungated. With a manifest, every target's kind must
+  be covered by a blocking builder, so no target lands unverified.
+- Backend code sits in `qqgate/backends/<backend>.py`, picked by the `backend` field. `github`
+  checks that infra-config generates a workflow whose job is each required check on both events,
+  emits the ruleset's `required_status_checks` rule (checks must come from the GitHub Actions app),
+  and reads a commit's check runs. `launchpad` is one new module.
+- A verdict passes only when every required check reported `success`. Missing, running, skipped
+  and neutral checks are refusals. Exit codes: 0 pass, 1 refused, 2 the gate could not decide.
+
+```sh
+qqgate required --config ../infra-config --repo xo-space [--manifest infra/repo.toml]
+qqgate rule     --config ../infra-config --repo xo-space          # ruleset rule JSON (V0-ORG-03 applies it)
+qqgate verdict  --config ../infra-config --repo xo-space --sha <commit>   # or --observed checks.json
+```
+
+Today: `xo-space` requires `xo-space-presubmit`, `innernet` requires `innernet-presubmit`.
+xo-space's hand-written `tests` check stays required alongside it until its manifest targets cover
+route parity and the install harnesses (pipelines.toml); V0-ORG-03 lists it as transitional.
+
+"A red PR is refused" has two halves. CI here proves the gate's half: a red check on either repo
+gives a refusal. The live half needs the generated workflows delivered (xo-space #211, innernet
+#37), the rulesets applied (V0-ORG-03, suraj) and the manifests (V0-ONB-01/02).
+
 ## v0 status
 
 | Item | PR | State |
 | --- | --- | --- |
-| bootstrap | #1 | in review |
-| V0-GAT-01 | | not started |
+| bootstrap | #1 | merged |
+| V0-GAT-01 | #2 | in review; live demo waits on V0-ORG-03, V0-ONB-01/02 |
 | V0-ORG-03 | | waits on V0-GAT-01 |
 | V0-GAT-02 | | waits on V0-GAT-01 |
 | V0-GAT-03 | | waits on V0-GAT-01, V0-ORG-02 (suraj's owners) |

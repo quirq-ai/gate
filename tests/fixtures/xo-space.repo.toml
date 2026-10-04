@@ -1,0 +1,23 @@
+# Fixture: the manifest xo-space gets at onboarding (V0-ONB-01 lands the real one in xo-space).
+# The toolchain pin is the one quirq-ai/toolchains promoted (promoted.toml at d020ec6): an OCI
+# image manifest digest. Only linux-x86_64 is built so far.
+schema = "quirq-repo/1"
+
+[qq]
+version = "0.1.0"
+
+[toolchains.python]
+version = "3.14.8"   # latest stable CPython; rollers keep it current
+platforms."linux-x86_64" = { source = "oci://ghcr.io/quirq-ai/toolchains/python", digest = "sha256:32c0b762db5ec5453e63cf057ab4fa072751a19f1af70f08c07ac4f5fb70a716" }
+
+[[targets]]
+name = "server"
+kind = "python-service"
+srcs = ["server.py", "requirements.txt", "config/**", "routers/**", "services/**", "utils/**", "space_ui/**"]
+
+[[targets]]
+name = "tests"
+kind = "pytest"
+srcs = ["tests/**", "pytest.ini", "requirements-dev.txt"]
+deps = ["server"]
+params = { shards = "auto" }
