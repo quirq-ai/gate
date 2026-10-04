@@ -11,12 +11,18 @@ python3 -m venv .venv && .venv/bin/pip install -e .
 mkdir -p .qq/repos && for r in $(python3 -c "import tomllib;print(' '.join(r['name'] for r in tomllib.load(open('settings/github.toml','rb'))['repo']))"); do
   git clone --depth 1 "https://github.com/quirq-ai/$r" ".qq/repos/$r"; done
 
+gh auth refresh -s admin:org   # the org ruleset (--org) needs admin:org; repo rulesets need repo admin
 .venv/bin/qqgate settings verify --config .qq/infra-config --checkouts .qq/repos     # which repos are ready
 QQ_GITHUB_TOKEN=$(gh auth token) .venv/bin/qqgate settings apply --config .qq/infra-config --checkouts .qq/repos --org         # dry run
 QQ_GITHUB_TOKEN=$(gh auth token) .venv/bin/qqgate settings apply --config .qq/infra-config --checkouts .qq/repos --org --yes   # write
 ```
 
-Apply only writes repos that are ready, so it is safe to re-run as more repos get ready. Each repo gets:
+Apply only writes repos that are ready, so it is safe to re-run as more repos get ready; it exits 1
+while any repo is not ready, even after writing the ready ones. The dry run also prints a WARNING for
+classic branch protection or other rulesets already on a repo: those stack with ours, so remove them
+or check their required checks run on `merge_group`. The org ruleset goes last and on its own; if it
+fails (missing `admin:org`, or the org's plan does not offer "Require workflows to pass before
+merging" — TODO(suraj): confirm the plan), the repo rulesets are already written. Each repo gets:
 
 - `qq-main` on the default branch: pull request required, merge queue (squash, all-green grouping,
   verdict timeout = gate.toml's 40-minute admission limit), the required checks, no force push, no
@@ -32,8 +38,14 @@ What blocks which repo (from `settings verify`, 2026-10-04):
 - xo-space: merge the generated workflows (xo-space #211), and add `merge_group` to `tests.yml`, whose
   `tests` check stays required until V0-ONB-01 retires it.
 - innernet: merge the generated workflows (innernet #37).
-- Infra repos: ready. gardener, rollers, release and installer have no presubmit yet; their PRs still
-  go through the queue, and their check is added to `settings/github.toml` when it lands.
+- depot: `parity-compare` needs the `parity` matrix without `if: always()`, so a failed leg would skip
+  it and GitHub would count the skip as a pass. The depot thread is fixing it (aggregator pattern).
+- Other infra repos: ready. gardener, rollers, release and installer have no presubmit yet; their PRs
+  still go through the queue, and their check is added to `settings/github.toml` when it lands.
+
+`verify` refuses a required check that can skip or never report: a job-level `if:` (unless it is
+`always()`-style or listed in `allow_conditional` with a reason), `needs:` without `always()`, a
+matrix job, a path-filtered workflow, or a name used by jobs in two workflows.
 
 Decisions for suraj (`TODO(suraj)` in `settings/github.toml`):
 

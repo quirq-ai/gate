@@ -78,4 +78,9 @@ jobs:
         run: |
           infra=$(python -c "import tomllib; print(' '.join('--repo ' + r['name'] for r in tomllib.load(open('settings/github.toml','rb'))['repo'] if r['kind'] == 'infra'))")
           qqgate settings verify --config .qq/infra-config --checkouts .qq/repos || true
-          qqgate settings verify --config .qq/infra-config --checkouts .qq/repos $infra
+          # Drift (a listed check gone or no longer on the queue's events) fails this job; other
+          # not-ready reasons are follow-ups owned by that repo and show above.
+          qqgate settings verify --config .qq/infra-config --checkouts .qq/repos $infra > "$RUNNER_TEMP/v.txt" || true
+          if grep -E "is not a job|does not run on" "$RUNNER_TEMP/v.txt"; then
+            echo "::error::settings/github.toml has drifted from an infra repo's workflows"; exit 1
+          fi

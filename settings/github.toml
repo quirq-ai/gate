@@ -59,7 +59,9 @@ checks = ["validate"]                # qq-drift skips itself here; it is the org
 [[repo]]
 name = "depot"
 kind = "infra"
-checks = ["test", "parity-compare"]   # `parity` is a matrix; parity-compare needs every leg
+# `parity` is a matrix; parity-compare aggregates it but needs `if: always()` and a check that every
+# leg succeeded, or a failed leg skips it and GitHub counts the skip as a pass. Asked of depot.
+checks = ["test", "parity-compare"]
 
 [[repo]]
 name = "sync"
@@ -90,6 +92,9 @@ checks = ["ci"]                      # aggregates unit and promotions
 name = "remote-build"
 kind = "infra"
 checks = ["presubmit", "cross-backend"]
+# cross-backend skips on fork PRs, which have no token to dispatch the GitHub backend; the merge
+# queue (same repo) always runs it, so the skip cannot land a red change.
+allow_conditional = ["cross-backend"]
 
 [[repo]]
 name = "perf"

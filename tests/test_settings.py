@@ -123,3 +123,43 @@ def test_org_ruleset_runs_drift_in_every_product_repo(s, cfg):
     assert rs["conditions"]["repository_name"]["include"] == ["innernet", "xo-space"]
     wf = rs["rules"][0]["parameters"]["workflows"][0]
     assert wf == {"path": ".github/workflows/qq-drift.yml", "repository_id": 42, "ref": "refs/heads/main"}
+
+
+@pytest.mark.parametrize("job,why", [
+    ("  test:\n    needs: build\n    runs-on: x\n", "without `if: always()`"),
+    ("  test:\n    if: github.actor != 'x'\n    runs-on: x\n", "counts it as passing"),
+    ("  test:\n    strategy:\n      matrix:\n        a: [1, 2]\n", "matrix job"),
+])
+def test_required_jobs_that_can_skip_or_rename_are_not_ready(s, cfg, config_root, tmp_path, job, why):
+    plan = plans_by_name(s, cfg, config_root)["sync"]
+    co = _checkout(tmp_path, "x", "on: [pull_request, merge_group]\njobs:\n  build:\n    runs-on: x\n" + job)
+    assert any(why in w for w in settings.readiness(plan, co))
+
+
+def test_always_aggregator_and_allowed_condition_are_ready(s, cfg, config_root, tmp_path):
+    plan = plans_by_name(s, cfg, config_root)["sync"]
+    co = _checkout(tmp_path, "x", "on: [pull_request, merge_group]\njobs:\n  b:\n    runs-on: x\n"
+                   "  test:\n    needs: b\n    if: always()\n    runs-on: x\n")
+    assert settings.readiness(plan, co) == []
+    co2 = _checkout(tmp_path, "y", "on: [pull_request, merge_group]\njobs:\n  test:\n    if: false\n")
+    assert settings.readiness(plan, co2, allow_conditional=("test",)) == []
+
+
+def test_path_filtered_and_duplicate_names_are_not_ready(s, cfg, config_root, tmp_path):
+    plan = plans_by_name(s, cfg, config_root)["sync"]
+    co = _checkout(tmp_path, "x", "on:\n  pull_request:\n    paths: [src/**]\n  merge_group:\njobs:\n  test:\n    runs-on: x\n")
+    (co / ".github" / "workflows" / "other.yml").write_text("on: [pull_request, merge_group]\njobs:\n  test:\n    runs-on: x\n")
+    whys = settings.readiness(plan, co)
+    assert any("paths" in w for w in whys) and any("several workflows" in w for w in whys)
+
+
+def test_existing_protection_is_reported(monkeypatch):
+    def fake(method, url, token, body=None):
+        if url.endswith("/protection"):
+            return {"required_status_checks": {"contexts": ["old-ci"]}}
+        if "/rulesets" in url:
+            return [{"name": "qq-main", "id": 1}, {"name": "legacy", "id": 2}]
+        return {"default_branch": "main"}
+    monkeypatch.setattr(github, "_send", fake)
+    lines = github.existing_protection("quirq-ai", "gate", {"qq-main"}, "t")
+    assert "old-ci" in lines[0] and "legacy" in lines[1]

@@ -192,6 +192,27 @@ def _send(method: str, url: str, token: str, body: dict | None = None):
         raise GateError(f"GitHub API {method} {url}: {e.code} {e.reason}: {detail}") from None
 
 
+def existing_protection(owner: str, repo: str, ours: set[str], token: str) -> list[str]:
+    """Other rules on the repo that stack with ours. A check they require that never runs on
+    merge_group would wedge the queue, so the admin reviews them before writing."""
+    out = []
+    info = _send("GET", f"{API}/repos/{owner}/{repo}", token)
+    branch = info.get("default_branch", "main")
+    try:
+        prot = _send("GET", f"{API}/repos/{owner}/{repo}/branches/{branch}/protection", token)
+        checks = ((prot.get("required_status_checks") or {}).get("contexts")) or []
+        out.append(f"classic branch protection on {branch} (required checks: {', '.join(checks) or 'none'}); "
+                   "it stacks with the rulesets, so remove it or make sure its checks run on merge_group")
+    except GateError as e:
+        if " 404 " not in str(e):
+            raise
+    others = [r["name"] for r in _send("GET", f"{API}/repos/{owner}/{repo}/rulesets?includes_parents=true&per_page=100", token)
+              if r["name"] not in ours]
+    if others:
+        out.append(f"other rulesets apply too: {', '.join(others)}")
+    return out
+
+
 def apply(owner: str, repo: str, wanted: list[dict], token: str, write: bool) -> list[str]:
     """Create or update each wanted ruleset by name; never deletes rulesets it did not create."""
     base = f"{API}/repos/{owner}/{repo}/rulesets"

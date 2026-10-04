@@ -72,30 +72,84 @@ def build(settings: dict, cfg: dict, config_root: Path) -> list[RepoPlan]:
     return plans
 
 
-def workflow_jobs(checkout: Path) -> dict[str, set[str]]:
-    """Job id (or `name:`) -> the events its workflow runs on, for every workflow in a checkout."""
-    jobs: dict[str, set[str]] = {}
+@dataclass
+class Job:
+    events: set[str]
+    workflows: list[str]
+    condition: str = ""        # job-level `if:`; a skipped job counts as passing on GitHub
+    needs: tuple[str, ...] = ()
+    matrix: bool = False       # matrix legs report as "name (a, b)", never as the bare name
+    path_filtered: bool = False
+
+
+def _events(on) -> tuple[set[str], bool]:
+    if isinstance(on, str):
+        return {on}, False
+    if isinstance(on, list):
+        return set(on), False
+    on = on or {}
+    filtered = any(isinstance(v, dict) and ("paths" in v or "paths-ignore" in v)
+                   for k, v in on.items() if k in GATE_EVENTS)
+    return set(on), filtered
+
+
+def workflow_jobs(checkout: Path) -> dict[str, Job]:
+    """Check name (job `name:` or id) -> how it runs, across every workflow in a checkout."""
+    jobs: dict[str, Job] = {}
     for wf in sorted((checkout / ".github" / "workflows").glob("*.y*ml")):
-        doc = yaml.safe_load(wf.read_text()) or {}
-        on = doc.get("on", doc.get(True)) or {}
-        events = {on} if isinstance(on, str) else set(on)
+        try:
+            doc = yaml.safe_load(wf.read_text()) or {}
+        except yaml.YAMLError as e:
+            raise GateError(f"{wf}: not valid YAML: {e}") from None
+        if not isinstance(doc, dict):
+            continue
+        events, filtered = _events(doc.get("on", doc.get(True)))
         for job_id, job in (doc.get("jobs") or {}).items():
-            name = job.get("name", job_id) if isinstance(job, dict) else job_id
-            jobs.setdefault(str(name), set()).update(events)
+            job = job if isinstance(job, dict) else {}
+            name = str(job.get("name", job_id))
+            needs = job.get("needs", ())
+            j = jobs.setdefault(name, Job(set(), []))
+            j.events |= events
+            j.workflows.append(wf.name)
+            j.condition = str(job.get("if", "")) or j.condition
+            j.needs = tuple([needs] if isinstance(needs, str) else needs) or j.needs
+            j.matrix = j.matrix or "matrix" in (job.get("strategy") or {})
+            j.path_filtered = j.path_filtered or filtered
     return jobs
 
 
-def readiness(plan: RepoPlan, checkout: Path) -> list[str]:
-    """Why applying this repo's rulesets now would block it; empty means safe to apply."""
+def readiness(plan: RepoPlan, checkout: Path, allow_conditional: tuple[str, ...] = ()) -> list[str]:
+    """Why applying this repo's rulesets now would block it or let red through; empty means safe.
+
+    GitHub counts a skipped required check as passing, so a required job must not skip: no `if:`
+    (unless `if: always()`-style or listed in the repo's `allow_conditional`), and no `needs:` without
+    `always()`, because a failed dependency skips it. A matrix job or a path-filtered workflow may
+    never report under the required name, which would wedge the queue.
+    """
     if not (checkout / ".git").exists() and not (checkout / ".github").exists():
         return [f"no checkout at {checkout}"]
     jobs = workflow_jobs(checkout)
     out = []
     for c in plan.checks:
-        if c not in jobs:
+        j = jobs.get(c)
+        if j is None:
             out.append(f"required check {c!r} is not a job on the default branch (merge the PR that adds it first)")
             continue
-        missing = [e for e in GATE_EVENTS if e not in jobs[c]]
+        if len(j.workflows) > 1:
+            out.append(f"required check {c!r} is a job in several workflows ({', '.join(j.workflows)}); "
+                       "rename one so the name means one thing")
+        missing = [e for e in GATE_EVENTS if e not in j.events]
         if missing:
             out.append(f"required check {c!r} does not run on {', '.join(missing)}; the queue would wait forever")
+        if j.matrix:
+            out.append(f"required check {c!r} is a matrix job; its legs report under other names")
+        if j.path_filtered:
+            out.append(f"required check {c!r} is in a workflow filtered by paths, so it may never report")
+        always = "always()" in j.condition
+        if j.needs and not always:
+            out.append(f"required check {c!r} needs {', '.join(j.needs)} without `if: always()`: a failed "
+                       "dependency skips it, and GitHub counts a skipped required check as passing")
+        elif j.condition and not always and c not in allow_conditional:
+            out.append(f"required check {c!r} has `if: {j.condition}`; when it skips, GitHub counts it as "
+                       "passing (list it in allow_conditional with a reason if that skip is intended)")
     return out

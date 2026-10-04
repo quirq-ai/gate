@@ -84,8 +84,9 @@ def _plans(args):
     return cfg, backend, s, plans
 
 
-def _ready(plans, checkouts):
-    return {p.name: settings.readiness(p, Path(checkouts) / p.name) for p in plans}
+def _ready(plans, checkouts, s):
+    allow = {r["name"]: tuple(r.get("allow_conditional", ())) for r in s["repo"]}
+    return {p.name: settings.readiness(p, Path(checkouts) / p.name, allow.get(p.name, ())) for p in plans}
 
 
 def cmd_settings(args) -> int:
@@ -99,7 +100,7 @@ def cmd_settings(args) -> int:
         return 0
     if not args.checkouts:
         raise GateError(f"settings {args.action} needs --checkouts DIR with each repo's default branch")
-    ready = _ready(plans, args.checkouts)
+    ready = _ready(plans, args.checkouts, s)
     for p in plans:
         why = ready[p.name]
         print(f"{'ready    ' if not why else 'NOT READY'} {p.name:<15} required: {', '.join(p.checks) or '(none yet)'}")
@@ -110,15 +111,22 @@ def cmd_settings(args) -> int:
     token = os.environ.get("QQ_GITHUB_TOKEN")
     if not token:
         raise GateError("apply needs an admin token in QQ_GITHUB_TOKEN (for example: QQ_GITHUB_TOKEN=$(gh auth token))")
-    if args.org:
-        for line in mod.apply_org(s["org"]["owner"], s, cfg, token, write=args.yes):
-            print(line)
     for p in plans:
         if ready[p.name]:
             print(f"skip     {p.name}: not ready")
             continue
+        for line in mod.existing_protection(s["org"]["owner"], p.name, {rs["name"] for rs in p.rulesets}, token):
+            print(f"WARNING  {p.name}: {line}")
         for line in mod.apply(s["org"]["owner"], p.name, list(p.rulesets), token, write=args.yes):
             print(line)
+    # Last, and on its own: an org ruleset needs admin:org and a plan that offers required workflows.
+    if args.org:
+        try:
+            for line in mod.apply_org(s["org"]["owner"], s, cfg, token, write=args.yes):
+                print(line)
+        except GateError as e:
+            print(f"qqgate: org ruleset not applied: {e}", file=sys.stderr)
+            return 2
     return 0 if all(not w for w in ready.values()) else 1
 
 
