@@ -1,3 +1,4 @@
+import json
 import pytest
 
 from qqgate.cli import main
@@ -34,3 +35,11 @@ def test_crash_is_could_not_decide(monkeypatch, config_root):
     from tests.conftest import FIXTURES
     assert main(["verdict", "--config", str(config_root), "--repo", "xo-space",
                  "--observed", str(FIXTURES / "red.json")]) == 2
+
+
+def test_not_onboarded_has_its_own_exit_code(config_root, capsys):
+    for cmd in ("required", "rule"):
+        assert main([cmd, "--config", str(config_root), "--repo", "no-such-repo"]) == 3
+        assert "is not an onboarded repo" in capsys.readouterr().err
+    assert main(["required", "--config", str(config_root), "--repo", "no-such-repo", "--json"]) == 3
+    assert json.loads(capsys.readouterr().out) == {"repo": "no-such-repo", "onboarded": False}

@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from qqgate.errors import GateError
+from qqgate.errors import GateError, NotOnboarded
 
 GATE_TRIGGERS = ("change", "queue")  # the proposed change, and the exact merge result in the queue
 
@@ -60,8 +60,7 @@ def compute(cfg: dict, repo: str, manifest: dict | None = None) -> RequiredSet:
         raise GateError(f"gate.toml [merge_queue] required = {gate['required']!r} is not a rule this gate knows")
     repos = {r["name"]: r for r in cfg["repos"]["repo"]}
     if repo not in repos:
-        raise GateError(f"{repo!r} is not an onboarded repo in infra-config repos.toml "
-                        f"(known: {', '.join(sorted(repos))})")
+        raise NotOnboarded(repo, sorted(repos))
     default_backend = cfg["pipelines"]["defaults"]["backend"]
     checks = []
     for b in cfg["pipelines"]["builder"]:

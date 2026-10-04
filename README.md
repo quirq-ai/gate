@@ -39,7 +39,8 @@ gating and a queue for Launchpad (v2).
   emits the ruleset's `required_status_checks` rule (checks must come from the GitHub Actions app),
   and reads a commit's check runs. `launchpad` is one new module.
 - A verdict passes only when every required check reported `success`. Missing, running, skipped
-  and neutral checks are refusals. Exit codes: 0 pass, 1 refused, 2 the gate could not decide.
+  and neutral checks are refusals. Exit codes: 0 pass, 1 refused, 2 the gate could not decide,
+  3 the repo is not onboarded (with `--json`, stdout is `{"repo": ..., "onboarded": false}`).
 
 ```sh
 qqgate required --config ../infra-config --repo xo-space [--manifest infra/repo.toml]
