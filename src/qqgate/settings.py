@@ -86,10 +86,10 @@ def repo_options(r: dict) -> dict:
         raise GateError(f"{r['name']}: queue_group_size must be an integer, not {size!r}")
     state = r.get("state_branches", [])
     if not isinstance(state, list) or len(set(state)) != len(state) or not all(
-            isinstance(b, str) and re.fullmatch(r"[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*", b) and b != "main"
-            for b in state):
+            isinstance(b, str) and re.fullmatch(r"[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*", b)
+            and b not in ("main", "HEAD") and not b.startswith("refs/") for b in state):
         raise GateError(f"{r['name']}: state_branches must be distinct plain branch names (no patterns, "
-                        f"not main), not {state!r}")
+                        f"refs/ or HEAD, not main), not {state!r}")
     return {"code_owner_review": owners, "group_size": size, "state_branches": tuple(state)}
 
 
@@ -325,8 +325,54 @@ def org_workflows(s: dict, cfg: dict) -> list[dict]:
             raise GateError(f"org ruleset {w['ruleset']!r}: sha {w['sha']!r} is not a full 40-hex commit")
         if not str(w["ref"]).startswith("refs/heads/"):
             raise GateError(f"org ruleset {w['ruleset']!r}: ref {w['ref']!r} is not a branch (refs/heads/...)")
+        if w.get("pinned", False):
+            # A pinned ruleset judges exactly one repo with a file that names it; enabled, it must
+            # carry its sha (rollers counts only sha-pinned workflows rules).
+            if len(targets) != 1 or f"-{targets[0]}-" not in Path(w["path"]).name:
+                raise GateError(f"org ruleset {w['ruleset']!r}: a pinned workflow targets one repo, named in "
+                                f"its file name; got targets {targets} and path {w['path']!r}")
+            if w.get("enabled", False) and "sha" not in w:
+                raise GateError(f"org ruleset {w['ruleset']!r}: pinned and enabled, but no sha")
         out.append({**w, "targets": targets})
     names = [w["ruleset"] for w in out]
     if len(set(names)) != len(names):
         raise GateError(f"org ruleset names repeat: {names}")
+    return out
+
+
+def pinned_workflow_problems(text: str, repository: str, default_branch: str = "main") -> list[str]:
+    """Why a required (org ruleset) workflow could pass without judging `repository` (owner/name),
+    or never report; empty means it runs every job on every PR and queue entry. GitHub counts a
+    skipped job as passing, so the only job-level `if:` allowed is the repository guard that keeps
+    the file from running in its source repo."""
+    import yaml  # parsed only here and when reading workflows
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        return [f"not valid YAML: {e}"]
+    if not isinstance(doc, dict):
+        return ["not a workflow"]
+    out = []
+    events, filtered, pr, mg = _events(doc.get("on", doc.get(True)))
+    for e in ("pull_request", "merge_group"):
+        if e not in events:
+            out.append(f"does not run on {e}")
+    if filtered:
+        out.append("is path-filtered, so a PR touching other paths never gets it")
+    out += _pr_problems("the workflow", [pr], default_branch, [mg])
+    jobs = doc.get("jobs") if isinstance(doc.get("jobs"), dict) else {}
+    if not jobs:
+        out.append("has no jobs")
+    guard = f"github.repository == '{repository}'"
+    for job_id, job in jobs.items():
+        job = job if isinstance(job, dict) else {}
+        cond = str(job.get("if", "")).strip()
+        if cond.startswith("${{") and cond.endswith("}}"):
+            cond = cond[3:-2].strip()
+        if cond and cond != guard:
+            out.append(f"job {job_id!r} has `if: {cond}`; only `{guard}` is allowed")
+        if "uses" in job:
+            out.append(f"job {job_id!r} calls a reusable workflow")
+        if job.get("continue-on-error") not in (None, False):
+            out.append(f"job {job_id!r} has continue-on-error, so a failure can pass")
     return out

@@ -59,9 +59,12 @@ targets = ["toolchains"]
 # Each product repo's presubmit, run from infra-config at a pinned commit, so a PR (or a dependency
 # roll) cannot change the workflow that judges it. rollers' land check counts only a workflows rule
 # whose entries carry a 40-hex `sha` (rollers R-2). One ruleset per repo: the file names its repo.
+# apply --org checks the pinned file: on pull_request and merge_group, no path filter, and no job that
+# can skip or pass on failure (the only `if:` allowed is `github.repository == 'quirq-ai/<repo>'`).
 # Off until infra-config publishes the file on main; then set `sha` to that commit and enable.
 ruleset = "qq-xo-space-presubmit-pinned"
 enabled = false
+pinned = true                        # one target, named in the file; sha required to enable
 repository = "infra-config"
 path = ".github/workflows/qq-required-xo-space-presubmit.yml"
 ref = "refs/heads/main"
@@ -70,6 +73,7 @@ targets = ["xo-space"]
 [[org_workflows]]
 ruleset = "qq-innernet-presubmit-pinned"
 enabled = false
+pinned = true
 repository = "infra-config"
 path = ".github/workflows/qq-required-innernet-presubmit.yml"
 ref = "refs/heads/main"

@@ -53,7 +53,9 @@ What the run does and does not do:
 - Each write is printed as soon as it succeeds. If one fails, the run stops with `FAILED`, says
   every line above it is already live and lists the repos it did not attempt. Re-running is safe:
   rulesets are created or updated by name, never deleted.
-- It never touches rulesets or protection it did not create.
+- It never touches rulesets or protection it did not create, and never deletes one: a ruleset
+  dropped from `settings/github.toml` (for example a repo's `state_branches` emptied) stays live
+  until an admin deletes it in Settings > Rules.
 
 Each ready repo gets:
 
@@ -97,11 +99,16 @@ repo's `main` on every PR and queue entry, so a PR cannot satisfy them with its 
   presubmit, run from infra-config's `.github/workflows/qq-required-<repo>-presubmit.yml` at a pinned
   commit (`sha`), so neither a PR nor a dependency roll can change the workflow that judges it.
   rollers auto-lands only into a repo that has one. They are switched on, with their `sha`, once
-  infra-config publishes those files. `apply` checks that the pinned commit is on infra-config's
-  `main` and holds the file.
+  infra-config publishes those files. `apply --org` checks that the pinned commit is on
+  infra-config's `main` and that the file there runs on `pull_request` and `merge_group` with no path
+  filter and no job that can skip or pass on failure (the only `if:` allowed is the repository guard).
 - `qq-drift` (off): infra-config's `qq-drift.yml` in the product repos. It stays off until
   infra-config's `qq-drift.yml` only checks the default branch against a pinned config; turning it on
   is a reviewed one-line change.
+
+A ruleset workflow runs only if the repo holding it lets the org's repos use its workflows
+(infra-config: Settings > Actions > General > Access). If it cannot run, every PR into the targets
+waits on it, so check that setting before enabling one.
 
 Applying them is a second run, after the repo rulesets: `gh auth refresh -s admin:org`, then the
 same `apply` command with `--org` added (dry run first). An org ruleset only targets repos that are

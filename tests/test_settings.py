@@ -1,7 +1,9 @@
 import argparse
+import base64
 import copy
 import dataclasses
 import json
+import re
 import subprocess
 
 import pytest
@@ -187,25 +189,83 @@ def test_org_workflow_pins_are_checked(s, cfg, field, value, why):
         settings.org_workflows(s, cfg)
 
 
-def test_apply_org_refuses_a_sha_that_is_not_on_the_branch(monkeypatch):
-    w = {"ruleset": "r", "repository": "infra-config", "path": ".github/workflows/x.yml",
-         "ref": "refs/heads/main", "sha": "b" * 40}
-    for status, ok in (("ahead", True), ("identical", True), ("diverged", False), ("behind", False)):
-        seen = []
+GOOD_PINNED = """name: qq required xo-space-presubmit
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+jobs:
+  xo-space-presubmit-pinned:
+    if: github.repository == 'quirq-ai/xo-space'
+    runs-on: ubuntu-24.04
+    steps: [{run: "true"}]
+"""
 
-        def send(method, url, token, body=None, status=status):
-            seen.append((method, url))
-            if "/compare/" in url:
-                return {"status": status}
-            return [] if url.endswith("rulesets?per_page=100") else {"id": 9}
-        monkeypatch.setattr(github, "_send", send)
-        if ok:
-            assert "create ruleset r" in list(github.apply_org("quirq-ai", w, ["xo-space"], "t", write=False))[0]
-            assert any(u.endswith(f"/contents/.github/workflows/x.yml?ref={'b' * 40}") for _, u in seen)
-            assert all(m == "GET" for m, _ in seen)
-        else:
-            with pytest.raises(GateError, match="is not on infra-config main"):
-                list(github.apply_org("quirq-ai", w, ["xo-space"], "t", write=False))
+
+def _fake_github(monkeypatch, status="behind", text=GOOD_PINNED, kind="file"):
+    seen = []
+
+    def send(method, url, token, body=None):
+        seen.append((method, url))
+        if "/compare/" in url:
+            return {"status": status}
+        if "/contents/" in url:
+            return {"type": kind, "encoding": "base64", "content": base64.b64encode(text.encode()).decode()}
+        return [] if url.endswith("rulesets?per_page=100") else {"id": 9}
+    monkeypatch.setattr(github, "_send", send)
+    return seen
+
+
+PINNED = {"ruleset": "r", "repository": "infra-config", "path": ".github/workflows/qq-required-xo-space-presubmit.yml",
+          "ref": "refs/heads/main", "sha": "b" * 40, "pinned": True}
+
+
+@pytest.mark.parametrize("status,ok", [("behind", True), ("identical", True), ("ahead", False), ("diverged", False)])
+def test_apply_org_refuses_a_sha_that_is_not_on_the_branch(monkeypatch, status, ok):
+    seen = _fake_github(monkeypatch, status)
+    if ok:
+        assert "create ruleset r" in list(github.apply_org("quirq-ai", PINNED, ["xo-space"], "t", write=False))[0]
+        urls = [u for _, u in seen]
+        assert f"{github.API}/repos/quirq-ai/infra-config/compare/main...{'b' * 40}" in urls
+        assert any(u.endswith(f"/contents/{PINNED['path']}?ref={'b' * 40}") for u in urls)
+        assert all(m == "GET" for m, _ in seen)
+    else:
+        with pytest.raises(GateError, match="is not on infra-config main"):
+            list(github.apply_org("quirq-ai", PINNED, ["xo-space"], "t", write=False))
+
+
+@pytest.mark.parametrize("text,why", [
+    (GOOD_PINNED.replace("  merge_group:\n", ""), "does not run on merge_group"),
+    (GOOD_PINNED.replace("    branches: [main]", "    paths: [src/**]"), "path-filtered"),
+    (GOOD_PINNED.replace("quirq-ai/xo-space'", "quirq-ai/innernet'"), "only `github.repository == 'quirq-ai/xo-space'`"),
+    (GOOD_PINNED.replace("    runs-on:", "    continue-on-error: true\n    runs-on:"), "continue-on-error"),
+    (GOOD_PINNED.replace("    branches: [main]", "    branches: [dev]"), "never for PRs into main"),
+    ("jobs: {}\n", "does not run on pull_request"),
+])
+def test_apply_org_refuses_a_pinned_workflow_that_can_pass_without_judging(monkeypatch, text, why):
+    _fake_github(monkeypatch, text=text)
+    with pytest.raises(GateError, match=re.escape(why)):
+        list(github.apply_org("quirq-ai", PINNED, ["xo-space"], "t", write=False))
+
+
+def test_apply_org_refuses_a_pinned_path_that_is_not_a_file(monkeypatch):
+    _fake_github(monkeypatch, kind="dir")
+    with pytest.raises(GateError, match="is not a file"):
+        list(github.apply_org("quirq-ai", PINNED, ["xo-space"], "t", write=False))
+
+
+def test_pinned_entries_need_one_named_target_and_a_sha_to_enable(s, cfg):
+    w = s["org_workflows"][2]
+    for change, why in (({"targets": ["xo-space", "innernet"]}, "targets one repo"),
+                        ({"targets": ["innernet"]}, "targets one repo"),
+                        ({"enabled": True}, "no sha")):
+        bad = copy.deepcopy(s)
+        bad["org_workflows"][2] = {**w, **change}
+        with pytest.raises(GateError, match=why):
+            settings.org_workflows(bad, cfg)
+    ok = copy.deepcopy(s)
+    ok["org_workflows"][2] = {**w, "enabled": True, "sha": "c" * 40}
+    assert settings.org_workflows(ok, cfg)[2]["sha"] == "c" * 40
 
 
 def test_state_branches_cannot_be_deleted_or_rewritten(s, cfg, config_root):
@@ -218,7 +278,7 @@ def test_state_branches_cannot_be_deleted_or_rewritten(s, cfg, config_root):
     assert "qq-state-branches" not in {r["name"] for r in plans["sync"].rulesets}
 
 
-@pytest.mark.parametrize("bad", [["main"], ["a*"], ["x", "x"], "ledger", [""]])
+@pytest.mark.parametrize("bad", [["main"], ["a*"], ["x", "x"], "ledger", [""], ["HEAD"], ["refs/heads/x"]])
 def test_state_branches_are_plain_names(bad):
     with pytest.raises(GateError, match="state_branches"):
         settings.repo_options({"name": "r", "state_branches": bad})
@@ -337,10 +397,12 @@ def test_tampered_child_plan_is_refused(apply_env, config_root, tmp_path, capsys
                                                         "admission": {"max_minutes": d["(gate)"]["max_minutes"]}}},
             ("lint", "tests"))}}),
         lambda d: d.update({"(backend)": "other"}),
+        lambda d: d["gardener"].update({"rulesets": [r for r in d["gardener"]["rulesets"]
+                                                     if r["name"] != "qq-state-branches"]}),
     ]
     for t in tampers:
         def plan(args, t=t):
-            d = _child_plan(argparse.Namespace(**{**vars(args), "repo": ["sync", "xo-space"]}))
+            d = _child_plan(argparse.Namespace(**{**vars(args), "repo": ["sync", "xo-space", "gardener"]}))
             t(d)
             return d
         apply_env.setattr(cli, "_plan_without_token", plan)
