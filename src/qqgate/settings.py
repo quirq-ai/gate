@@ -88,11 +88,16 @@ def repo_options(r: dict) -> dict:
             and b not in ("main", "HEAD") and not b.startswith("refs/") for b in state):
         raise GateError(f"{r['name']}: state_branches must be distinct plain branch names (no patterns, "
                         f"refs/ or HEAD, not main), not {state!r}")
+    tags = r.get("release_tags", [])
+    if not isinstance(tags, list) or len(set(tags)) != len(tags) or not all(
+            isinstance(t, str) and re.fullmatch(r"[A-Za-z0-9._*-]+(/[A-Za-z0-9._*-]+)*", t)
+            and not t.startswith("refs/") for t in tags):
+        raise GateError(f"{r['name']}: release_tags must be distinct tag name patterns (no refs/), not {tags!r}")
     bot = r.get("dependabot_branches", False)
     if not isinstance(bot, bool):
         raise GateError(f"{r['name']}: dependabot_branches must be true or false, not {bot!r}")
     return {"code_owner_review": owners, "group_size": size, "state_branches": tuple(state),
-            "dependabot_branches": bot}
+            "dependabot_branches": bot, "release_tags": tuple(tags)}
 
 
 @dataclass

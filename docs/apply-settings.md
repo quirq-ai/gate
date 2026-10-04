@@ -96,6 +96,11 @@ is no less safe.
   release `release-state`, perf `perf-data`, test-pipelines `results`): those branches cannot be deleted or force-pushed.
   Their bots still push to them normally. Later, once the release executor exists, `release-state`
   should also be writable only by it (TODO(suraj) in `settings/github.toml`).
+- `qq-release-tags`, in depot: no tag may be created, moved or deleted except by the release
+  executor (not decided yet, so by nobody). depot's pins trust its tags: a version-only pin
+  installs tag `v<version>`, and a `git:` digest must be on a branch or tag. No other repo's pins
+  trust tags (other qq repos pin each other by commit). xo-space's `v*` tags start its container
+  publish; they are not locked, because suraj cuts them by hand (TODO(suraj): who may create them).
 - Not in this apply: `qq-dependabot-branches` (only Dependabot may push to or force-push
   `dependabot/**` in xo-space and innernet). It is built only for repos with
   `dependabot_branches = true`, which is false for both today. Its bypass names the Dependabot app

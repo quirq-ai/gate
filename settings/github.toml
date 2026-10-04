@@ -138,6 +138,10 @@ checks = ["validate"]                # qq-drift skips itself here; it is the org
 [[repo]]
 name = "depot"
 kind = "infra"
+# Every tag is trusted by depot's pins: a version-only pin installs tag v<version>, and a git:
+# digest must be on a branch or tag (src/qqdepot/pin.py). Nobody but the release executor (not
+# decided yet, so nobody) may create, move or delete one.
+release_tags = ["**"]
 # `parity` is a matrix; parity-compare aggregates it but needs `if: always()` and a check that every
 # leg succeeded, or a failed leg skips it and GitHub counts the skip as a pass. Asked of depot.
 checks = ["test", "parity-compare"]
