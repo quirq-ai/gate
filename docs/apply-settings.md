@@ -96,7 +96,9 @@ is no less safe.
   GitHub Actions app), no force push, no deletion, and nobody on the bypass list. Together these
   refuse a direct push to `main`. toolchains also requires code-owner review: its CODEOWNERS (toolchains
   #14) names suraj for `/.github/`, `/tools/`, `/toolchains/`, `/toolchains.toml` and
-  `/promoted.toml`, so a change there needs his approval once `qq-main` is applied.
+  `/promoted.toml`, so a change there needs his approval once `qq-main` is applied. GitHub does
+  not let anyone approve their own PR and nobody bypasses `qq-main`, so a PR suraj opens himself that
+  touches those paths cannot merge until a second owner is named (README: TODO(suraj)).
 - `qq-release-refs-branches` and `qq-release-refs-tags`: `lkgr` and `channels/**/*` cannot be created,
   moved or deleted except by the release executor. Its identity is not decided yet, so today nobody
   can write them.
