@@ -12,6 +12,10 @@
         rulesets of ready repos; dry run unless --yes. Needs an admin token in QQ_GITHUB_TOKEN.
     qqgate guard --repo NAME [ROOT]   (V0-GAT-02)
         Fail if a core repo's shipped code names a language, build tool or deploy target.
+    qqgate queued-at [--event FILE] [--repository OWNER/NAME] [--json]   (V0-GAT-04)
+        In a merge_group job: when the change entered the queue, as RFC 3339 UTC. Inside GitHub
+        Actions it also exports QQ_QUEUED_AT to GITHUB_ENV for the result sink. Exit 1, nothing
+        exported, when only an approximate time is available.
 Exit codes: 0 ok or pass, 1 refused or not ready, 2 the gate could not decide.
 """
 from __future__ import annotations
@@ -145,6 +149,27 @@ def cmd_guard(args) -> int:
     return 1 if findings else 0
 
 
+def cmd_queued_at(args) -> int:
+    event_path = args.event or os.environ.get("GITHUB_EVENT_PATH")
+    repository = args.repository or os.environ.get("GITHUB_REPOSITORY")
+    if not event_path or not repository:
+        raise GateError("queued-at needs --event and --repository (or GITHUB_EVENT_PATH and GITHUB_REPOSITORY)")
+    try:
+        event = json.loads(Path(event_path).read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        raise GateError(f"event {event_path}: {e}") from None
+    q = backends.load(args.backend).queued_at(event, repository)
+    if not q.exact:  # an approximate time would skew p50/p90 unseen, so the sink gets none
+        print(f"qqgate: only an approximate queue time ({q.at}, {q.source}); not exported", file=sys.stderr)
+        return 1
+    print(json.dumps({"queued_at": q.at, "source": q.source, "exact": q.exact}) if args.json else q.at)
+    env_file = os.environ.get("GITHUB_ENV")
+    if env_file and not args.no_export:
+        with open(env_file, "a") as f:
+            f.write(f"QQ_QUEUED_AT={q.at}\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="qqgate", description=__doc__.splitlines()[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
@@ -179,6 +204,13 @@ def main(argv: list[str] | None = None) -> int:
     gd.add_argument("--repo", required=True, help="core repo name (guard/terms.toml core)")
     gd.add_argument("--github", action="store_true", help="print GitHub annotations")
     gd.add_argument("root", nargs="?", default=".", help="the repo checkout (default: .)")
+    qa = sub.add_parser("queued-at", help="when this gate run's change entered the queue (V0-GAT-04)")
+    qa.set_defaults(fn=cmd_queued_at)
+    qa.add_argument("--event", help="the event payload JSON (default: GITHUB_EVENT_PATH)")
+    qa.add_argument("--repository", help="owner/name (default: GITHUB_REPOSITORY)")
+    qa.add_argument("--backend", default="github")
+    qa.add_argument("--json", action="store_true")
+    qa.add_argument("--no-export", action="store_true", help="do not write QQ_QUEUED_AT to GITHUB_ENV")
     args = ap.parse_args(argv)
     try:
         return args.fn(args)

@@ -74,6 +74,20 @@ there is no inline pragma. Registered media types (`application/vnd.docker...`) 
 targets, and are skipped. Each core repo adds
 `qqgate guard --repo <name> .` to its presubmit; this repo's `settings-drift` job sweeps them all.
 
+## Gate timing (V0-GAT-04)
+
+Scorecard v0 (test-pipelines) reports gate time per repo as p50 and p90 of queue entry to verdict,
+from each gate run's `Run.queued_at`. The merge_group payload carries no queue-entry time, so a gate
+job runs `quirq-ai/gate/timing@<commit>` before the result sink: it reads the PR from the queue ref,
+takes the newest `added_to_merge_queue` event on its timeline at or before the group was built, and
+exports `QQ_QUEUED_AT` (RFC 3339 UTC) for the sink. If the timeline cannot be read it exports nothing
+(the merge-group commit's time would understate the wait without anyone seeing it) and warns. It
+never fails the job. The job's token needs `pull-requests: read` (and `contents: read`).
+
+Scorecard caveats for v0: with several PRs in one group, the group is timed from the tip PR's queue
+entry. Put the timing step and the sink only in the gate job that finishes last, so each gate run
+is one sample.
+
 ## v0 status
 
 | Item | PR | State |
@@ -81,9 +95,9 @@ targets, and are skipped. Each core repo adds
 | bootstrap | #1 | merged |
 | V0-GAT-01 | #2 | merged; live demo waits on V0-ORG-03, V0-ONB-01/02 |
 | V0-ORG-03 | #3 | merged; waits on suraj to apply ([docs/apply-settings.md](docs/apply-settings.md)) |
-| V0-GAT-02 | #4 | in review |
+| V0-GAT-02 | #4 | merged |
 | V0-GAT-03 | | waits on V0-GAT-01, V0-ORG-02 (suraj's owners) |
-| V0-GAT-04 | | in progress (V0-TST-02 merged) |
+| V0-GAT-04 | #6 | in review; numbers appear once the queue runs and the sink reads QQ_QUEUED_AT |
 
 ## Known conflict
 

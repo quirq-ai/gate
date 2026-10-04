@@ -301,3 +301,61 @@ def observe(source: str, sha: str, expected: dict[str, str], token: str | None =
     for name in spoofed:
         out[name] = SPOOFED
     return out
+
+
+# --- V0-GAT-04: queue-entry time of a merge_group run -------------------------------------------
+
+def queue_pr_number(head_ref: str) -> int:
+    """The PR a merge-group ref was built for: refs/heads/gh-readonly-queue/main/pr-123-<sha>."""
+    import re
+    m = re.search(r"gh-readonly-queue/.+/pr-(\d+)-[0-9a-f]+$", head_ref or "")
+    if not m:
+        raise GateError(f"{head_ref!r} is not a merge-queue ref")
+    return int(m.group(1))
+
+
+def queued_at(event: dict, repository: str, token: str | None = None):
+    """When the PR behind a merge_group event entered the queue.
+
+    Exact: the newest `added_to_merge_queue` event on the PR's timeline at or before the group was
+    built (a PR removed and re-added is timed from the entry this group came from, even when an old
+    group's run is still going after a later re-add). This assumes head_commit.timestamp is when the
+    queue made the group commit, which holds for squash and merge queues (settings use squash). Fallback, marked inexact: the merge-group
+    commit's timestamp, which is when the queue built the group, so it leaves out waiting before it.
+    """
+    from qqgate import timing
+
+    mg = event.get("merge_group")
+    if not mg:
+        raise GateError("not a merge_group event, so it is not a gate run")
+    number = queue_pr_number(mg.get("head_ref", ""))
+    ts = (mg.get("head_commit") or {}).get("timestamp")
+    if token is None:
+        token = os.environ.get("QQ_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    try:
+        items = _get_list(f"{API}/repos/{repository}/issues/{number}/timeline", token)
+        added = sorted(timing.rfc3339(e["created_at"]) for e in items
+                       if e.get("event") == "added_to_merge_queue" and e.get("created_at"))
+        if added:
+            built = timing.rfc3339(ts) if ts else None
+            before = [a for a in added if built is None or a <= built]
+            if before:  # none at or before the build: this group's entry is unknown, so fall back
+                return timing.QueuedAt(before[-1], "timeline:added_to_merge_queue", True)
+    except GateError:
+        pass  # fall back below; the fallback is marked inexact
+    if not ts:
+        raise GateError(f"PR #{number}: no added_to_merge_queue event and no head_commit timestamp")
+    return timing.QueuedAt(timing.rfc3339(ts), "merge_group.head_commit.timestamp", False)
+
+
+def _get_list(url: str, token: str | None) -> list[dict]:
+    """GET a paged list endpoint that returns a bare JSON array."""
+    out, page = [], 1
+    while True:
+        items = _get(f"{url}{'&' if '?' in url else '?'}per_page=100&page={page}", token)
+        if not isinstance(items, list):
+            raise GateError(f"{url}: expected a list")
+        out += items
+        if len(items) < 100:
+            return out
+        page += 1
