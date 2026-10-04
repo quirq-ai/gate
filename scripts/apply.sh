@@ -4,7 +4,7 @@
 # deletes and clones qq-gate fresh in ~/qq-apply, so nothing an earlier run left there (an edited
 # script, a package in the venv) can run or get in the way:
 #
-#   ( mkdir -p ~/qq-apply && cd ~/qq-apply && rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && cd qq-gate && git checkout -q <COMMIT> && scripts/apply.sh )
+#   ( mkdir -p ~/qq-apply && cd ~/qq-apply && rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && cd ./qq-gate && git checkout -q <COMMIT> && scripts/apply.sh )
 #
 # It sets up a new hashed venv, clones infra-config at the pinned commit and every repo fresh, runs
 # verify and a dry run, and writes only after you type `yes`. A repo that moves during the run is
@@ -13,6 +13,7 @@
 # already applied them skips that step (~/qq-apply/.qq-gate-org-done; delete it after any change on GitHub). Nothing is written before a `yes`. Re-running is safe:
 # rulesets are created or updated by name.
 set -euo pipefail
+unset CDPATH  # a CDPATH entry could send a relative cd to another clone
 
 say() { printf '\n== %s\n' "$*"; }
 die() { printf '\napply.sh: %s\n' "$*" >&2; exit 2; }
@@ -71,7 +72,7 @@ log=.qq/out.txt
 # Exit 0 = all good, 1 = something not ready or refused (the output says what), 2 = error.
 status=0
 # The exact command to run again (from any directory; it leaves your shell where it was).
-again_cmd="( mkdir -p ~/qq-apply && cd ~/qq-apply && rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && cd qq-gate && git checkout -q $(git rev-parse HEAD) && scripts/apply.sh )"
+again_cmd="( mkdir -p ~/qq-apply && cd ~/qq-apply && rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && cd ./qq-gate && git checkout -q $(git rev-parse HEAD) && scripts/apply.sh )"
 finish() {
   if [ "$status" = 0 ]; then say "$1"; exit 0; fi
   say "Finished, but something above was not ready, skipped or REFUSED (exit 1). Fix it and run this again:"

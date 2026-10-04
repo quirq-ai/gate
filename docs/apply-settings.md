@@ -11,7 +11,7 @@ export a token: qqgate asks `gh auth token` itself, after the step that runs inf
 has exited.
 
 ```sh
-( mkdir -p ~/qq-apply && cd ~/qq-apply && rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && cd qq-gate && git checkout -q <COMMIT> && scripts/apply.sh )
+( mkdir -p ~/qq-apply && cd ~/qq-apply && rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && cd ./qq-gate && git checkout -q <COMMIT> && scripts/apply.sh )
 ```
 
 Paste it from any directory, as often as you like: it all runs in a subshell `( ... )`, so your
