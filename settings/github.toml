@@ -11,7 +11,7 @@ owner = "quirq-ai"
 [main]
 # One ruleset on the default branch of every repo below.
 ruleset = "qq-main"
-merge_method = "squash"                  # gate.toml [merge_queue]; TODO(suraj): confirm squash for every repo
+merge_method = "squash"                  # gate.toml [merge_queue]; suraj confirmed squash for every repo (2026-10-04)
 required_approvals = 0                   # code-owner review on the verification surface is V0-GAT-03
 # Nobody bypasses the gate: no agent, and no admin. TODO(suraj): add an admin bypass only if you want a
 # break-glass path; it would be a policy change.
@@ -25,6 +25,20 @@ tags = ["lkgr", "channels/**"]
 # TODO(suraj): the release executor's identity (a GitHub App id, ideally the agent bot from the
 # open identity question). Until it exists nobody can create, move or delete these refs.
 bypass_integration_ids = []
+
+[reserved_tags]
+# Tags named like a branch. A tag called `main` satisfies a workflow's `github.ref_name == 'main'`
+# test, so in every repo nobody may create, move or delete one (perf audit).
+ruleset = "qq-reserved-tags"
+names = ["main"]
+
+[dependabot]
+# Product repos with dependabot_branches = true: only Dependabot may update or force-push its own PR
+# branches, so the commit rollers checked is the commit that lands (rollers land_check reads
+# `update` and `non_fast_forward` on the PR branch). actor_id is GitHub's Dependabot app.
+ruleset = "qq-dependabot-branches"
+branches = "refs/heads/dependabot/**"
+actor_id = 29110
 
 # Organization rulesets: "Require workflows to pass before merging". Each runs a workflow from
 # another repo's main, so a PR cannot satisfy it with its own same-named job (audit S6: a required
@@ -96,11 +110,13 @@ kind = "product"
 # (through pytest; xo-space #214 audit), and V0-ONB-01 deletes tests.yml, which a required `tests`
 # would block.
 transitional_checks = []
+dependabot_branches = true
 
 [[repo]]
 name = "innernet"
 kind = "product"
 transitional_checks = []
+dependabot_branches = true
 
 # --- infra repos (hand-written presubmits, read from each repo's workflows on 2026-10-04) --------
 
@@ -139,7 +155,7 @@ checks = ["presubmit"]
 [[repo]]
 name = "toolchains"
 kind = "infra"
-checks = ["ci"]                      # aggregates unit and promotions
+checks = ["ci"]                      # aggregates unit
 # promotion-gate is enforced by the qq-toolchains-promotion-gate org ruleset above, not listed here:
 # it runs on pull_request_target, and a same-named job in a PR could satisfy a status check.
 code_owner_review = true             # CODEOWNERS: .github/, tools/, toolchains/, promoted.toml
@@ -161,6 +177,7 @@ name = "perf"
 kind = "infra"
 # measure-result aggregates the `measure` matrix (build size and benchmarks end to end).
 checks = ["presubmit", "measure-result"]
+state_branches = ["perf-data"]       # the measurement history; its workflow appends, never rewrites
 
 [[repo]]
 name = "gardener"

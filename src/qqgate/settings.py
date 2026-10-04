@@ -88,7 +88,11 @@ def repo_options(r: dict) -> dict:
             and b not in ("main", "HEAD") and not b.startswith("refs/") for b in state):
         raise GateError(f"{r['name']}: state_branches must be distinct plain branch names (no patterns, "
                         f"refs/ or HEAD, not main), not {state!r}")
-    return {"code_owner_review": owners, "group_size": size, "state_branches": tuple(state)}
+    bot = r.get("dependabot_branches", False)
+    if not isinstance(bot, bool):
+        raise GateError(f"{r['name']}: dependabot_branches must be true or false, not {bot!r}")
+    return {"code_owner_review": owners, "group_size": size, "state_branches": tuple(state),
+            "dependabot_branches": bot}
 
 
 @dataclass
@@ -102,7 +106,9 @@ class Job:
     reusable: bool = False     # `uses:` a reusable workflow: reports as "job / inner job"
     pr_filters: list[dict] = field(default_factory=list)   # pull_request: branches / types per workflow
     mg_filters: list[dict] = field(default_factory=list)   # merge_group: types per workflow
-    reads_needs: bool = False  # the job looks at needs.<job>.result (an always() aggregator must)
+    reads_needs: bool = False  # compares needs.<job>.result with success (an always() aggregator must)
+    continue_on_error: bool = False   # job-level: a failure still reports success
+    environment: bool = False  # waits on an environment's protection rules (approval, timer)
 
 
 def _events(on) -> tuple[set[str], bool, dict, dict]:
@@ -145,7 +151,10 @@ def workflow_jobs(checkout: Path) -> dict[str, Job]:
                 j.pr_filters.append(pr)
             if mg:
                 j.mg_filters.append(mg)
-            j.reads_needs = j.reads_needs or bool(NEEDS_RESULT.search(json.dumps(job, default=str)))
+            text = json.dumps(job, default=str)
+            j.reads_needs = j.reads_needs or bool(NEEDS_RESULT.search(text) and "success" in text)
+            j.continue_on_error = j.continue_on_error or job.get("continue-on-error") not in (None, False)
+            j.environment = j.environment or "environment" in job
     return jobs
 
 
@@ -183,6 +192,12 @@ def _pr_problems(check: str, filters: list[dict], default_branch: str, mg_filter
         types = _as_list(f.get("types"))
         if types and "checks_requested" not in types:
             out.append(f"required check {check!r} runs on merge_group types {types} without checks_requested")
+        branches, ignore = _as_list(f.get("branches")), _as_list(f.get("branches-ignore"))
+        if branches and not _branch_selected(default_branch, branches):
+            out.append(f"required check {check!r} runs on merge_group only for branches {branches}, "
+                       f"never for the {default_branch} queue")
+        if any(fnmatch.fnmatchcase(default_branch, b) for b in ignore):
+            out.append(f"required check {check!r} ignores the {default_branch} queue (merge_group branches-ignore)")
     for f in filters:
         branches, ignore = _as_list(f.get("branches")), _as_list(f.get("branches-ignore"))
         if branches and not _branch_selected(default_branch, branches):
@@ -237,10 +252,15 @@ def readiness(plan: RepoPlan, checkout: Path, allow_conditional: tuple[str, ...]
         if j.path_filtered:
             out.append(f"required check {c!r} is in a workflow filtered by paths, so it may never report")
         out += _pr_problems(c, j.pr_filters, default_branch, j.mg_filters)
+        if j.continue_on_error:
+            out.append(f"required check {c!r} has continue-on-error, so it reports success when it fails")
+        if j.environment:
+            out.append(f"required check {c!r} uses an environment, whose approval or wait can hold the queue "
+                       "past its timeout")
         always = _is_always(j.condition)
         if j.needs and always and not j.reads_needs:
             out.append(f"required check {c!r} runs after {', '.join(j.needs)} with `if: always()` but never "
-                       "reads needs.<job>.result, so it passes even when they fail")
+                       "compares needs.<job>.result with success, so it can pass when they fail")
         if j.needs and not always:
             out.append(f"required check {c!r} needs {', '.join(j.needs)} without exactly `if: always()`: a "
                        "failed dependency skips it, and GitHub counts a skipped required check as passing")
@@ -343,7 +363,7 @@ def _cancels(c) -> bool:
     return isinstance(c, dict) and c.get("cancel-in-progress") not in (None, False)
 
 
-def ruleset_workflow_problems(text: str) -> list[str]:
+def ruleset_workflow_problems(text: str, max_minutes: int | None = None) -> list[str]:
     """Why GitHub could not run this file as an org ruleset workflow, or a run could block a PR or
     queue entry until someone re-runs it ("Troubleshooting rules"): it must run on merge_group and
     pull_request or pull_request_target, and must not cancel in progress (an expression counts)."""
@@ -368,17 +388,23 @@ def ruleset_workflow_problems(text: str) -> list[str]:
     for job_id, job in jobs.items():
         if isinstance(job, dict) and _cancels(job.get("concurrency")):
             out.append(f"job {job_id!r} concurrency has cancel-in-progress, which a ruleset workflow must not use")
+        # The queue drops a check that has not reported within gate.toml's admission limit.
+        limit = job.get("timeout-minutes", 360) if isinstance(job, dict) else 360
+        if max_minutes is not None and (not isinstance(limit, int) or isinstance(limit, bool) or limit > max_minutes):
+            out.append(f"job {job_id!r} may run {limit} minutes, past the queue's {max_minutes}-minute limit "
+                       "(set timeout-minutes)")
     return out
 
 
-def pinned_workflow_problems(text: str, repository: str, default_branch: str = "main") -> list[str]:
+def pinned_workflow_problems(text: str, repository: str, default_branch: str = "main",
+                             max_minutes: int | None = None) -> list[str]:
     """Why a pinned org ruleset workflow could pass without judging `repository` (owner/name), on
     top of ruleset_workflow_problems. GitHub counts a skipped job as passing, so the only job-level
     `if:` allowed is the repository guard that keeps the file from running in its source repo, and
     no job or step may continue on error. Step-level `if:` is not judged: what the steps run is
     reviewed in the source repo, whose commit the ruleset pins."""
     import yaml
-    out = ruleset_workflow_problems(text)
+    out = ruleset_workflow_problems(text, max_minutes)
     try:
         doc = yaml.safe_load(text)
     except yaml.YAMLError:
@@ -386,7 +412,7 @@ def pinned_workflow_problems(text: str, repository: str, default_branch: str = "
     if not isinstance(doc, dict):
         return out
     events, filtered, pr, mg = _events(doc.get("on", doc.get(True)))
-    if "pull_request" not in events:
+    if "pull_request" not in events and "pull_request_target" in events:
         out.append("does not run on pull_request")
     if filtered:
         out.append("is path-filtered")
@@ -407,3 +433,21 @@ def pinned_workflow_problems(text: str, repository: str, default_branch: str = "
             if isinstance(step, dict) and step.get("continue-on-error") not in (None, False):
                 out.append(f"job {job_id!r} step {i} has continue-on-error, so a failure can pass")
     return out
+
+
+def org_workflow_readiness(w: dict, checkouts: Path, max_minutes: int, owner: str) -> list[str]:
+    """Why an enabled org workflow should not be required yet, read from the source repo's fresh
+    checkout (at `sha` when pinned): GitHub would not run it, or it could block every PR into its
+    targets. apply --org checks the same file again through the API before writing."""
+    co = checkouts / w["repository"]
+    if not (co / ".git").exists():
+        return [f"no checkout of {w['repository']} at {co}"]
+    at = w.get("sha", "HEAD")
+    if at != "HEAD" and _git(co, "cat-file", "-e", f"{at}^{{commit}}") is None:
+        _git(co, "fetch", "--quiet", "--depth", "1", "origin", at)
+    text = _git(co, "show", f"{at}:{w['path']}")
+    if text is None:
+        return [f"{w['path']} is not in {w['repository']} at {at[:12]}"]
+    if w.get("pinned"):
+        return pinned_workflow_problems(text, f"{owner}/{w['targets'][0]}", max_minutes=max_minutes)
+    return ruleset_workflow_problems(text, max_minutes)

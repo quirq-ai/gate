@@ -49,7 +49,7 @@ def test_main_ruleset_forces_the_queue_and_blocks_direct_push(s, cfg, config_roo
 
 
 def test_release_refs_are_locked_to_the_release_executor(s, cfg, config_root):
-    _, branches, tags = plans_by_name(s, cfg, config_root)["gate"].rulesets
+    _, branches, tags = plans_by_name(s, cfg, config_root)["gate"].rulesets[:3]
     assert branches["conditions"]["ref_name"]["include"] == ["refs/heads/lkgr", "refs/heads/channels/**"]
     assert tags["target"] == "tag"
     for rs in (branches, tags):
@@ -126,28 +126,82 @@ def test_readiness(s, cfg, config_root, tmp_path):
     assert "not a job" in settings.readiness(plan, renamed)[0]
 
 
-def test_apply_creates_then_updates_by_name(monkeypatch):
+def test_plan_repo_creates_updates_or_leaves_alone_by_name(monkeypatch):
     calls = []
+    live = {"qq-main": {"id": 7, "name": "qq-main", "enforcement": "disabled", "created_by": "x"},
+            "qq-same": {"id": 8, "name": "qq-same", "enforcement": "active", "node_id": "n"}}
 
     def fake(method, url, token, body=None):
         calls.append((method, url))
-        return [{"name": "qq-main", "id": 7}] if method == "GET" else {}
+        if method != "GET":
+            return {}
+        if url.endswith("per_page=100"):
+            return [{"name": n, "id": r["id"]} for n, r in live.items()]
+        return next(r for r in live.values() if url.endswith(f"/{r['id']}"))
 
     monkeypatch.setattr(github, "_send", fake)
-    wanted = [{"name": "qq-main"}, {"name": "qq-release-refs-branches"}]
-    assert list(github.apply("quirq-ai", "gate", wanted, "t", write=False))[0].endswith("(dry run)")
-    assert [c[0] for c in calls] == ["GET"]
-    list(github.apply("quirq-ai", "gate", wanted, "t", write=True))
+    wanted = [{"name": "qq-main", "enforcement": "active"}, {"name": "qq-same", "enforcement": "active"},
+              {"name": "qq-release-refs-branches"}]
+    changes = github.plan_repo("quirq-ai", "gate", wanted, "t")
+    assert [(c["action"], c["diff"]) for c in changes] == [("update", ["enforcement"]), ("unchanged", []),
+                                                           ("create", [])]
+    assert {m for m, _ in calls} == {"GET"}
+    for c in changes:
+        if c["action"] != "unchanged":
+            github.write(c, "t")
     assert calls[-2:] == [("PUT", "https://api.github.com/repos/quirq-ai/gate/rulesets/7"),
                           ("POST", "https://api.github.com/repos/quirq-ai/gate/rulesets")]
 
 
-def test_apply_without_token_is_a_clear_error(config_root, tmp_path, monkeypatch, capsys):
-    monkeypatch.delenv("QQ_GITHUB_TOKEN", raising=False)
-    _checkout(tmp_path, "sync", "on: [pull_request, merge_group]\njobs:\n  test:\n    runs-on: x\n")
-    assert main(["settings", "apply", "--config", str(config_root), "--repo", "sync",
-                 "--checkouts", str(tmp_path)]) == 2
-    assert "QQ_GITHUB_TOKEN" in capsys.readouterr().err
+def test_diff_ignores_fields_github_adds_but_sees_a_ui_bypass():
+    ours = {"name": "qq-main", "bypass_actors": [], "rules": [
+        {"type": "deletion"}, {"type": "pull_request", "parameters": {"require_code_owner_review": False}}]}
+    live = {"id": 1, "name": "qq-main", "bypass_actors": [], "_links": {}, "rules": [
+        {"type": "pull_request", "parameters": {"require_code_owner_review": False, "required_reviewers": []}},
+        {"type": "deletion"}]}
+    assert github._diff(live, ours) == []
+    live["bypass_actors"] = [{"actor_id": 5, "actor_type": "OrganizationAdmin", "bypass_mode": "always"}]
+    live["rules"][0]["parameters"]["require_code_owner_review"] = True
+    assert github._diff(live, ours) == ["bypass_actors", "rules[pull_request].parameters.require_code_owner_review"]
+    live["rules"].append({"type": "creation"})
+    assert "rules (creation)" in github._diff(live, ours)
+
+
+def test_apply_without_a_gh_token_is_a_clear_error(apply_env, config_root, tmp_path, capsys):
+    apply_env.delenv("QQ_GITHUB_TOKEN", raising=False)
+    gh = tmp_path / "bin" / "gh"
+    gh.parent.mkdir()
+    gh.write_text("#!/bin/sh\necho 'not logged in' >&2\nexit 1\n")
+    gh.chmod(0o755)
+    apply_env.setenv("PATH", f"{gh.parent}:/usr/bin:/bin")
+    assert main(_apply_args(config_root, tmp_path, "sync")) == 2
+    assert "gh auth login" in capsys.readouterr().err
+
+
+def test_token_is_read_only_after_the_plan_child_exits(apply_env, config_root, tmp_path, capsys):
+    """Re-check SF-6: a same-user child can read its parent's environment, so the token is fetched
+    from gh after the child has exited, never held while infra-config's code runs."""
+    from qqgate import cli
+    order = []
+    apply_env.delenv("QQ_GITHUB_TOKEN", raising=False)
+    apply_env.setattr(cli, "_plan_without_token", lambda args: order.append("child") or _child_plan(args))
+    real_run = subprocess.run
+
+    def run(cmd, **k):
+        if cmd[0] != "gh":
+            return real_run(cmd, **k)
+        order.append("gh")
+        return subprocess.CompletedProcess(cmd, 0, "tok\n", "")
+    apply_env.setattr(cli.subprocess, "run", run)
+    apply_env.setattr(github, "plan_repo", lambda owner, repo, wanted, token: order.append(token) or [])
+    assert main(_apply_args(config_root, tmp_path, "sync")) == 0
+    assert order == ["child", "gh", "tok"]
+
+
+def test_token_in_the_environment_is_warned_about(apply_env, config_root, tmp_path, capsys):
+    apply_env.setattr(github, "plan_repo", lambda *a: [])
+    assert main(_apply_args(config_root, tmp_path, "sync")) == 0
+    assert "WARNING  QQ_GITHUB_TOKEN was in this process's environment" in capsys.readouterr().out
 
 
 def test_plan_prints_json(config_root, capsys):
@@ -198,6 +252,7 @@ jobs:
   xo-space-presubmit-pinned:
     if: github.repository == 'quirq-ai/xo-space'
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps: [{run: "true"}]
 """
 
@@ -224,14 +279,14 @@ PINNED = {"ruleset": "r", "repository": "infra-config", "path": ".github/workflo
 def test_apply_org_refuses_a_sha_that_is_not_on_the_branch(monkeypatch, status, ok):
     seen = _fake_github(monkeypatch, status)
     if ok:
-        assert "create ruleset r" in list(github.apply_org("quirq-ai", PINNED, ["xo-space"], "t", write=False))[0]
+        assert github.plan_org("quirq-ai", PINNED, ["xo-space"], "t", 40)["action"] == "create"
         urls = [u for _, u in seen]
         assert f"{github.API}/repos/quirq-ai/infra-config/compare/main...{'b' * 40}" in urls
         assert any(u.endswith(f"/contents/{PINNED['path']}?ref={'b' * 40}") for u in urls)
         assert all(m == "GET" for m, _ in seen)
     else:
         with pytest.raises(GateError, match="is not on infra-config main"):
-            list(github.apply_org("quirq-ai", PINNED, ["xo-space"], "t", write=False))
+            github.plan_org("quirq-ai", PINNED, ["xo-space"], "t", 40)
 
 
 @pytest.mark.parametrize("text,why", [
@@ -249,7 +304,7 @@ def test_apply_org_refuses_a_sha_that_is_not_on_the_branch(monkeypatch, status, 
 def test_apply_org_refuses_a_pinned_workflow_that_can_pass_without_judging(monkeypatch, text, why):
     _fake_github(monkeypatch, text=text)
     with pytest.raises(GateError, match=re.escape(why)):
-        list(github.apply_org("quirq-ai", PINNED, ["xo-space"], "t", write=False))
+        github.plan_org("quirq-ai", PINNED, ["xo-space"], "t", 40)
 
 
 def test_apply_org_checks_an_unpinned_file_at_its_branch(monkeypatch):
@@ -258,19 +313,20 @@ def test_apply_org_checks_an_unpinned_file_at_its_branch(monkeypatch):
     w = {"ruleset": "t", "repository": "toolchains", "path": ".github/workflows/promotion-gate.yml",
          "ref": "refs/heads/main"}
     gate_yml = ("on:\n  pull_request_target:\n  merge_group:\nconcurrency:\n  group: g\n"
-                "  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}\njobs:\n  gate: {runs-on: x}\n")
+                "  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}\n"
+                "jobs:\n  gate: {runs-on: x, timeout-minutes: 40}\n")
     seen = _fake_github(monkeypatch, text=gate_yml)
     with pytest.raises(GateError, match="cancel-in-progress"):
-        list(github.apply_org("quirq-ai", w, ["toolchains"], "t", write=False))
+        github.plan_org("quirq-ai", w, ["toolchains"], "t", 40)
     assert any(u.endswith("/contents/.github/workflows/promotion-gate.yml?ref=refs%2Fheads%2Fmain") for _, u in seen)
     _fake_github(monkeypatch, text=gate_yml.replace("  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}\n", ""))
-    assert "create ruleset t" in list(github.apply_org("quirq-ai", w, ["toolchains"], "t", write=False))[0]
+    assert github.plan_org("quirq-ai", w, ["toolchains"], "t", 40)["action"] == "create"
 
 
 def test_apply_org_refuses_a_pinned_path_that_is_not_a_file(monkeypatch):
     _fake_github(monkeypatch, kind="dir")
     with pytest.raises(GateError, match="is not a file"):
-        list(github.apply_org("quirq-ai", PINNED, ["xo-space"], "t", write=False))
+        github.plan_org("quirq-ai", PINNED, ["xo-space"], "t", 40)
 
 
 def test_pinned_entries_point_at_a_sha(s, cfg):
@@ -372,6 +428,7 @@ def apply_env(monkeypatch, config_root):
                         lambda co, origin=None: settings.CheckoutState("a" * 40, "main", ()))
     monkeypatch.setattr(github, "existing_protection", lambda *a: [])
     monkeypatch.setattr(cli, "_plan_without_token", _child_plan)
+    monkeypatch.setattr(settings, "org_workflow_readiness", lambda *a: [])
     return monkeypatch
 
 
@@ -392,8 +449,8 @@ def test_org_ruleset_needs_one_enabled(apply_env, config_root, tmp_path, capsys)
         w["enabled"] = False
     real = settings.load_settings
     apply_env.setattr(settings, "load_settings", lambda b, path=None: copy.deepcopy(off) if b == "github" else real(b))
-    apply_env.setattr(github, "apply", lambda *a, **k: iter(()))
-    assert main(_apply_args(config_root, tmp_path, "sync", extra=["--org"])) == 2
+    apply_env.setattr(github, "plan_repo", lambda *a: [])
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=["--org"])) == 0
     assert "enabled = false" in capsys.readouterr().err
 
 
@@ -402,9 +459,10 @@ def test_org_ruleset_targets_only_repos_ready_in_this_run(apply_env, config_root
     next(w for w in on["org_workflows"] if w["ruleset"] == "qq-toolchains-promotion-gate")["enabled"] = True
     real = settings.load_settings
     apply_env.setattr(settings, "load_settings", lambda b, path=None: copy.deepcopy(on) if b == "github" else real(b))
-    apply_env.setattr(github, "apply", lambda *a, **k: iter(()))
+    apply_env.setattr(github, "plan_repo", lambda *a: [])
     got = []
-    apply_env.setattr(github, "apply_org", lambda owner, wf, targets, token, write: got.append(targets) or iter(()))
+    apply_env.setattr(github, "plan_org", lambda owner, wf, targets, token, max_minutes: got.append(targets) or
+                      {"where": "o", "name": wf["ruleset"], "action": "unchanged", "diff": []})
     assert main(_apply_args(config_root, tmp_path, "sync", extra=["--org"])) == 0
     assert got == [] and "skip     org ruleset qq-toolchains-promotion-gate" in capsys.readouterr().out
     assert main(_apply_args(config_root, tmp_path, "toolchains", extra=["--org"])) == 0
@@ -415,7 +473,7 @@ def test_tampered_child_plan_is_refused(apply_env, config_root, tmp_path, capsys
     """Review: the token-holding process rebuilds rulesets from settings and refuses a child that
     asks for anything else."""
     from qqgate import cli
-    apply_env.setattr(github, "apply", lambda *a, **k: iter(()))
+    apply_env.setattr(github, "plan_repo", lambda *a: [])
     tampers = [
         lambda d: d["sync"]["rulesets"][0]["bypass_actors"].append({"actor_id": 1}),
         lambda d: d["sync"]["required"].append("extra"),
@@ -464,9 +522,11 @@ def test_partial_failure_shows_what_is_live(apply_env, config_root, tmp_path, ca
     apply_env.setattr(github, "_send", send)
     assert main(_apply_args(config_root, tmp_path, "sync", "gate", extra=["--yes"])) == 2
     out = capsys.readouterr().out
-    assert "quirq-ai/sync: create ruleset qq-main" in out and "qq-release-refs-branches" not in out
-    assert "FAILED   sync: GitHub API POST: 422" in out and "Not attempted: gate." in out
-    assert "already live" in out and "Not attempted:" in out
+    assert "\nquirq-ai/sync: create ruleset qq-main\n" in out
+    assert "\nquirq-ai/sync: create ruleset qq-release-refs-branches\n" not in out
+    assert "FAILED   quirq-ai/sync qq-release-refs-branches: GitHub API POST: 422" in out
+    assert "already live" in out and "Not attempted: quirq-ai/sync qq-release-refs-tags" in out
+    assert "quirq-ai/gate qq-main" in out.split("Not attempted:")[1]
 
 
 def test_plan_is_computed_without_the_token(apply_env, config_root, tmp_path, capsys):
@@ -478,9 +538,10 @@ def test_plan_is_computed_without_the_token(apply_env, config_root, tmp_path, ca
         raise AssertionError("the token-holding process loaded infra-config")
     apply_env.setattr(config, "load", forbidden)
     apply_env.setattr(config, "qqcfg_module", forbidden)
-    apply_env.setattr(github, "apply", lambda *a, **k: iter(["quirq-ai/sync: create ruleset qq-main (dry run)"]))
+    apply_env.setattr(github, "plan_repo", lambda *a: [{"where": "quirq-ai/sync", "name": "qq-main",
+                                                        "action": "create", "diff": []}])
     assert main(_apply_args(config_root, tmp_path, "sync")) == 0
-    assert "(dry run)" in capsys.readouterr().out
+    assert "plan     quirq-ai/sync: create ruleset qq-main" in capsys.readouterr().out
 
 
 def test_squash_off_is_reported(monkeypatch):
@@ -498,9 +559,9 @@ def test_squash_off_is_reported(monkeypatch):
     ("  test:\n    if: always() && github.event_name == 'pull_request'\n    runs-on: x\n", "counts it as passing"),
     ("  test:\n    needs: build\n    if: always() && true\n    runs-on: x\n", "without exactly"),
     ("  test:\n    uses: ./.github/workflows/inner.yml\n", "reusable workflow"),
-    ("  test:\n    needs: build\n    if: always()\n    runs-on: x\n", "never reads needs"),
+    ("  test:\n    needs: build\n    if: always()\n    runs-on: x\n", "never compares"),
     ("  test:\n    needs: build\n    if: always()\n    runs-on: x\n    steps:\n      - run: echo ${{ needs.build.outputs.v }}\n",
-     "never reads needs"),
+     "never compares"),
 ])
 def test_audit_s5_holes_are_closed(s, cfg, config_root, tmp_path, job, why):
     plan = plans_by_name(s, cfg, config_root)["sync"]
@@ -589,3 +650,134 @@ def test_child_process_sees_no_credentials(tmp_path, monkeypatch):
     env = set(json.loads(seen.read_text()))
     assert not env & {"QQ_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "SSH_AUTH_SOCK", "NETRC", "DATABASE_URL"}
     assert "HOME" in env
+
+
+@pytest.mark.parametrize("job,why", [
+    ("  test:\n    runs-on: x\n    continue-on-error: true\n", "continue-on-error"),
+    ("  test:\n    runs-on: x\n    continue-on-error: ${{ matrix.x }}\n", "continue-on-error"),
+    ("  test:\n    runs-on: x\n    environment: prod\n", "environment"),
+])
+def test_required_jobs_that_can_pass_red_or_wait_are_not_ready(s, cfg, config_root, tmp_path, job, why):
+    """Re-check SF-8: a job that continues on error reports success, and an environment can hold a
+    queue entry past the admission limit."""
+    plan = plans_by_name(s, cfg, config_root)["sync"]
+    co = _checkout(tmp_path, "x", "on: [pull_request, merge_group]\njobs:\n" + job)
+    assert any(why in w for w in settings.readiness(plan, co))
+
+
+@pytest.mark.parametrize("mg,why", [
+    ("    branches: [dev]\n", "never for the main queue"),
+    ("    branches-ignore: [main]\n", "ignores the main queue"),
+])
+def test_merge_group_filters_that_miss_the_default_branch(s, cfg, config_root, tmp_path, mg, why):
+    plan = plans_by_name(s, cfg, config_root)["sync"]
+    co = _checkout(tmp_path, "x", "on:\n  pull_request:\n  merge_group:\n" + mg + "jobs:\n  test:\n    runs-on: x\n")
+    assert any(why in w for w in settings.readiness(plan, co))
+
+
+@pytest.mark.parametrize("limit,ok", [(None, False), (40, True), (45, False), ("${{ inputs.t }}", False)])
+def test_org_workflow_jobs_must_finish_inside_the_queue_limit(limit, ok):
+    """Re-check SF-4: promotion-gate's 45 minutes outlives the queue's 40, which drops the entry."""
+    job = "  gate:\n    runs-on: x\n" + (f"    timeout-minutes: {limit}\n" if limit is not None else "")
+    problems = settings.ruleset_workflow_problems("on: [pull_request_target, merge_group]\njobs:\n" + job, 40)
+    assert (problems == []) is ok
+    if not ok:
+        assert "past the queue's 40-minute limit" in problems[0]
+
+
+def test_org_workflow_readiness_reads_the_pinned_commit(tmp_path):
+    """Re-check SF-5: verify reads the org workflow at its sha from the source repo's checkout."""
+    co = tmp_path / "infra-config"
+    wf = co / ".github" / "workflows"
+    wf.mkdir(parents=True)
+    _git("init", "-q", "-b", "main", cwd=co)
+    path = ".github/workflows/qq-required-xo-space-presubmit.yml"
+    (co / path).write_text(GOOD_PINNED)
+    _git("add", ".", cwd=co)
+    _git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "good", cwd=co)
+    good = subprocess.run(["git", "rev-parse", "HEAD"], cwd=co, capture_output=True, text=True).stdout.strip()
+    (co / path).write_text(GOOD_PINNED.replace("  merge_group:\n", ""))
+    _git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "bad", cwd=co)
+    w = dict(PINNED, sha=good, targets=["xo-space"])
+    assert settings.org_workflow_readiness(w, tmp_path, 40, "quirq-ai") == []
+    assert "merge_group" in " ".join(settings.org_workflow_readiness(dict(w, sha="HEAD"), tmp_path, 40, "quirq-ai"))
+    assert "not in infra-config" in settings.org_workflow_readiness(dict(w, path="x.yml"), tmp_path, 40, "quirq-ai")[0]
+    assert "no checkout" in settings.org_workflow_readiness(w, tmp_path / "none", 40, "quirq-ai")[0]
+
+
+def test_org_ruleset_keeps_live_targets_it_does_not_name(monkeypatch):
+    """Re-check SF-3: a run limited to one repo must not drop the others from a live org ruleset."""
+    w = {"ruleset": "t", "repository": "toolchains", "path": ".github/workflows/promotion-gate.yml",
+         "ref": "refs/heads/main"}
+    gate_yml = "on: [pull_request_target, merge_group]\njobs:\n  gate: {runs-on: x, timeout-minutes: 40}\n"
+
+    def send(method, url, token, body=None):
+        if "/compare/" in url:
+            return {"status": "behind"}
+        if "/contents/" in url:
+            body = GOOD_PINNED if "xo-space" in url else gate_yml
+            return {"type": "file", "encoding": "base64", "content": base64.b64encode(body.encode()).decode()}
+        if url.endswith("rulesets?per_page=100"):
+            return [{"name": "t", "id": 3}]
+        if url.endswith("/rulesets/3"):
+            return {"id": 3, "name": "t", "conditions": {"repository_name": {"include": ["innernet"]}}}
+        return {"id": 9}
+    monkeypatch.setattr(github, "_send", send)
+    c = github.plan_org("quirq-ai", w, ["toolchains"], "t", 40)
+    assert c["action"] == "update"
+    assert c["body"]["conditions"]["repository_name"]["include"] == ["innernet", "toolchains"]
+    with pytest.raises(GateError, match="pinned ruleset judges only"):
+        github.plan_org("quirq-ai", dict(PINNED, ruleset="t"), ["xo-space"], "t", 40)
+
+
+def test_every_repo_reserves_the_main_tag(s, cfg, config_root):
+    for plan in plans_by_name(s, cfg, config_root).values():
+        rs = {r["name"]: r for r in plan.rulesets}["qq-reserved-tags"]
+        assert rs["target"] == "tag" and rs["bypass_actors"] == []
+        assert rs["conditions"]["ref_name"]["include"] == ["refs/tags/main"]
+        assert {r["type"] for r in rs["rules"]} == {"creation", "update", "deletion", "non_fast_forward"}
+
+
+def test_only_dependabot_changes_its_branches_in_product_repos(s, cfg, config_root):
+    """Re-check SF-2: rollers lands a Dependabot PR only if its branch has update and non_fast_forward."""
+    plans = plans_by_name(s, cfg, config_root)
+    for repo in ("xo-space", "innernet"):
+        rs = {r["name"]: r for r in plans[repo].rulesets}["qq-dependabot-branches"]
+        assert rs["conditions"]["ref_name"]["include"] == ["refs/heads/dependabot/**"]
+        assert rs["rules"] == [{"type": "update"}, {"type": "non_fast_forward"}]
+        assert rs["bypass_actors"] == [{"actor_id": 29110, "actor_type": "Integration", "bypass_mode": "always"}]
+    assert "qq-dependabot-branches" not in {r["name"] for r in plans["sync"].rulesets}
+
+
+def test_perf_data_cannot_be_deleted_or_rewritten(s, cfg, config_root):
+    rs = {r["name"]: r for r in plans_by_name(s, cfg, config_root)["perf"].rulesets}["qq-state-branches"]
+    assert rs["conditions"]["ref_name"]["include"] == ["refs/heads/perf-data"]
+
+
+def test_yes_refuses_warnings_and_overwrites_unless_asked(apply_env, config_root, tmp_path, capsys):
+    """Re-check SF-7: --yes alone never writes past a WARNING or over a ruleset someone changed."""
+    sent = []
+    apply_env.setattr(github, "existing_protection", lambda *a: ["branch protection requires 'x'"])
+    apply_env.setattr(github, "plan_repo", lambda *a: [
+        {"where": "quirq-ai/sync", "name": "qq-main", "action": "update", "diff": ["bypass_actors"]}])
+    apply_env.setattr(github, "write", lambda c, t: sent.append(c) or "quirq-ai/sync: update ruleset qq-main")
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=["--yes"])) == 1
+    out = capsys.readouterr().out
+    assert "REFUSED  nothing written" in out and "--accept-warnings" in out and "--overwrite" in out
+    assert "plan     quirq-ai/sync: update ruleset qq-main (differs: bypass_actors)" in out and sent == []
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=["--yes", "--accept-warnings"])) == 1
+    assert "--accept-warnings" not in capsys.readouterr().out.split("REFUSED")[1] and sent == []
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=["--yes", "--accept-warnings", "--overwrite"])) == 0
+    assert len(sent) == 1
+
+
+def test_org_entry_whose_file_is_not_ready_is_skipped_and_fails_the_run(apply_env, config_root, tmp_path, capsys):
+    on = copy.deepcopy(settings.load_settings("github"))
+    next(w for w in on["org_workflows"] if w["ruleset"] == "qq-toolchains-promotion-gate")["enabled"] = True
+    real = settings.load_settings
+    apply_env.setattr(settings, "load_settings", lambda b, path=None: copy.deepcopy(on) if b == "github" else real(b))
+    apply_env.setattr(settings, "org_workflow_readiness", lambda *a: ["has cancel-in-progress"])
+    apply_env.setattr(github, "plan_repo", lambda *a: [])
+    apply_env.setattr(github, "plan_org", lambda *a: pytest.fail("plan_org called for a skipped entry"))
+    assert main(_apply_args(config_root, tmp_path, "toolchains", extra=["--org"])) == 1
+    assert "skip     org ruleset qq-toolchains-promotion-gate: has cancel-in-progress" in capsys.readouterr().out

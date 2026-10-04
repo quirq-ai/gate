@@ -245,14 +245,44 @@ def cmd_settings(args) -> int:
             print(f"WARNING  {stale}", flush=True)
         ready, heads = _ready(plans, args.checkouts, s)
         _print_ready(plans, ready, heads)
-        return 0 if all(not w for w in ready.values()) else 1
+        org_bad = 0
+        for w in settings.org_workflows(s, cfg):
+            if not w.get("enabled", False):
+                continue
+            why = settings.org_workflow_readiness(w, Path(args.checkouts), cfg["gate"]["admission"]["max_minutes"],
+                                                  s["org"]["owner"])
+            org_bad += bool(why)
+            print(f"{'ready    ' if not why else 'NOT READY'} org {w['ruleset']}", flush=True)
+            for line in why:
+                print(f"            {line}", flush=True)
+        return 0 if all(not w for w in ready.values()) and not org_bad else 1
     return _apply(args)
 
 
-def _apply(args) -> int:
+def _token() -> str:
+    """The admin token, read only after the plan child has exited: while infra-config code runs, no
+    credential is in this process (a same-user child can read its parent's environment)."""
     token = os.environ.get("QQ_GITHUB_TOKEN")
-    if not token:
-        raise GateError("apply needs an admin token in QQ_GITHUB_TOKEN (for example: QQ_GITHUB_TOKEN=$(gh auth token))")
+    if token:
+        print("WARNING  QQ_GITHUB_TOKEN was in this process's environment while infra-config's code ran in "
+              "the plan child, which can read it; leave it unset and qqgate asks `gh auth token` afterwards",
+              flush=True)
+        return token
+    try:
+        r = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise GateError(f"apply needs a token: `gh auth token` failed ({e}); run `gh auth login` first") from None
+    if r.returncode != 0 or not r.stdout.strip():
+        raise GateError(f"apply needs a token: `gh auth token` failed: {r.stderr.strip()}; run `gh auth login` first")
+    return r.stdout.strip()
+
+
+def _print_change(c: dict) -> None:
+    extra = f" (differs: {', '.join(c['diff'])})" if c["diff"] else ""
+    print(f"plan     {c['where']}: {c['action']} ruleset {c['name']}{extra}", flush=True)
+
+
+def _apply(args) -> int:
     stale = _config_at_pin(Path(args.config))
     if stale:
         raise GateError(f"{stale}; check out the pinned commit (docs/apply-settings.md)")
@@ -263,51 +293,81 @@ def _apply(args) -> int:
     if settings_file.read_bytes() != before:
         raise GateError(f"{settings_file} changed while the plan was computed; refusing to apply")
     s, mod, plans, org = _trusted_plans(data, args.repo, s, Path(args.config))
+    token = _token()
+    max_minutes = data["(gate)"]["max_minutes"]
     ready, heads = _ready(plans, args.checkouts, s)
     _print_ready(plans, ready, heads)
     owner = s["org"]["owner"]
+    in_run = [p for p in plans if not ready[p.name]]
+
+    # 1. Read everything first (GETs only), so nothing is written unless the whole run can go.
+    warnings, changes, skipped_org = [], [], []
     ours = {rs["name"] for p in plans for rs in p.rulesets} | {w["ruleset"] for w in org}
-    todo = [p for p in plans if not ready[p.name]]
-    for i, p in enumerate(todo):
-        try:
+    try:
+        for p in in_run:
             for line in mod.existing_protection(owner, p.name, ours, token):
+                warnings.append(f"{p.name}: {line}")
                 print(f"WARNING  {p.name}: {line}", flush=True)
-            for line in mod.apply(owner, p.name, list(p.rulesets), token, write=args.yes):
-                print(line, flush=True)
-        except Exception as e:  # any failure part way still reports what is live
-            rest = [q.name for q in todo[i + 1:]]
-            if args.org:
-                rest += [f"org ruleset {w['ruleset']}" for w in org if w.get("enabled", False)]
-            return _stopped(p.name, e, rest, args.yes)
+            for c in mod.plan_repo(owner, p.name, list(p.rulesets), token):
+                changes.append(c)
+                _print_change(c)
+        if args.org:
+            enabled = [w for w in org if w.get("enabled", False)]
+            if not enabled:
+                print("qqgate: no org ruleset applied: every [[org_workflows]] has enabled = false", file=sys.stderr)
+            names = {p.name for p in in_run}
+            for w in enabled:
+                targets = [t for t in w["targets"] if t in names]
+                why = settings.org_workflow_readiness(w, Path(args.checkouts), max_minutes, owner)
+                if why:  # the workflow file itself is not safe to require: a real problem, exit 1
+                    skipped_org.append(w["ruleset"])
+                    print(f"skip     org ruleset {w['ruleset']}: {'; '.join(why)}", flush=True)
+                    continue
+                if not targets:  # its repos are not in this run (--repo) or not ready (reported above)
+                    print(f"skip     org ruleset {w['ruleset']}: none of {', '.join(w['targets'])} is ready in "
+                          "this run", flush=True)
+                    continue
+                c = mod.plan_org(owner, w, targets, token, max_minutes)
+                changes.append(c)
+                _print_change(c)
+    except Exception as e:  # nothing has been written yet
+        return _stopped("reading GitHub", e, [], False)
     not_ready = sum(1 for w in ready.values() if w)
-    if args.org:
-        enabled = [w for w in org if w.get("enabled", False)]
-        if not enabled:
-            print("qqgate: no org ruleset applied: every [[org_workflows]] has enabled = false", file=sys.stderr)
-            return 2
-        in_run = {p.name for p in plans if not ready[p.name]}
-        for i, w in enumerate(enabled):
-            targets = [t for t in w["targets"] if t in in_run]
-            if not targets:
-                print(f"skip     org ruleset {w['ruleset']}: none of {', '.join(w['targets'])} is ready in this run",
-                      flush=True)
-                continue
-            try:
-                for line in mod.apply_org(owner, w, targets, token, write=args.yes):
-                    print(line, flush=True)
-            except Exception as e:
-                return _stopped(f"org ruleset {w['ruleset']}", e, [x["ruleset"] for x in enabled[i + 1:]], args.yes)
-    print(f"done     {len(todo)} repo(s) {'written' if args.yes else 'checked (dry run)'}, {not_ready} not ready",
+    todo = [c for c in changes if c["action"] != "unchanged"]
+    if not args.yes:
+        print(f"done     dry run: {len(todo)} write(s) planned, {not_ready} repo(s) not ready", flush=True)
+        return 1 if not_ready or skipped_org else 0
+    refuse = []
+    if warnings and not args.accept_warnings:
+        refuse.append("WARNING lines above (review them, then add --accept-warnings)")
+    differs = [f"{c['where']} {c['name']}" for c in todo if c["action"] == "update"]
+    if differs and not args.overwrite:
+        refuse.append(f"live rulesets differ from settings: {', '.join(differs)} (add --overwrite to replace them; "
+                      "anything added in the UI, such as a bypass, is removed)")
+    if refuse:
+        print("REFUSED  nothing written: " + "; ".join(refuse), flush=True)
+        return 1
+
+    # 2. Write, printing each line as soon as it is live.
+    for i, c in enumerate(todo):
+        try:
+            print(mod.write(c, token), flush=True)
+        except Exception as e:
+            return _stopped(f"{c['where']} {c['name']}", e, [f"{x['where']} {x['name']}" for x in todo[i + 1:]], True)
+    print(f"done     {len(todo)} write(s), {len(changes) - len(todo)} unchanged, {not_ready} repo(s) not ready",
           flush=True)
-    return 1 if not_ready else 0
+    return 1 if not_ready or skipped_org else 0
 
 
 def _stopped(what: str, e: Exception, rest: list[str], wrote: bool) -> int:
     print(f"FAILED   {what}: {e if isinstance(e, GateError) else f'{type(e).__name__}: {e}'}", flush=True)
     if wrote:
-        print("         Every line above without '(dry run)' is already live on GitHub. Not attempted: "
+        print("         Every line above that starts with a repo name (not 'plan') is already live on GitHub. "
+              "Not attempted: "
               f"{', '.join(rest) or 'nothing'}. Re-running is safe: rulesets are created or updated by name.",
               flush=True)
+    else:
+        print("         Nothing was written.", flush=True)
     return 2
 
 
@@ -369,6 +429,8 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--checkouts", help="directory holding a default-branch checkout of each repo, by name")
     st.add_argument("--yes", action="store_true", help="apply: really write (default is a dry run)")
     st.add_argument("--org", action="store_true", help="apply: also the enabled org rulesets (needs an admin:org token; not needed for repo rulesets)")
+    st.add_argument("--accept-warnings", action="store_true", help="apply --yes: write although WARNING lines were printed")
+    st.add_argument("--overwrite", action="store_true", help="apply --yes: replace live rulesets of our names that differ")
     st.add_argument("--no-validate", action="store_true", help="skip qqcfg validate (tests only)")
     gd = sub.add_parser("guard", help="agnosticism guard for a core repo (V0-GAT-02)")
     gd.set_defaults(fn=cmd_guard)

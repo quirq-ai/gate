@@ -62,8 +62,8 @@ gives a refusal. The live half needs the generated workflows delivered (xo-space
 `settings/github.toml` is the merge queue and rulesets as code, for all thirteen infra repos and
 both product repos. `qqgate settings plan` prints them, `verify` says which repos are safe to switch
 on today (every required check must run on `pull_request` and `merge_group` there), and `apply`
-creates or updates them by name for ready repos only. An org admin runs `apply`; see
-[docs/apply-settings.md](docs/apply-settings.md).
+creates or updates them by name for ready repos only. An org admin runs one command,
+`scripts/apply.sh`; see [docs/apply-settings.md](docs/apply-settings.md).
 
 ## Agnosticism guard (V0-GAT-02)
 
@@ -99,7 +99,7 @@ is one sample.
 | --- | --- | --- |
 | bootstrap | #1 | merged |
 | V0-GAT-01 | #2 | merged; live demo waits on V0-ORG-03, V0-ONB-01/02 |
-| V0-ORG-03 | #3, #5, #9, #10 | merged; waits on suraj to apply ([docs/apply-settings.md](docs/apply-settings.md)). Pinned product presubmit org rulesets wait on infra-config dropping cancel-in-progress |
+| V0-ORG-03 | #3, #5, #9, #10, #13 | merged; waits on suraj to run `scripts/apply.sh` ([docs/apply-settings.md](docs/apply-settings.md)). Org rulesets wait on infra-config and toolchains dropping cancel-in-progress (toolchains also a timeout within 40 minutes) |
 | V0-GAT-02 | #4 | merged |
 | V0-GAT-03 | | waits on V0-ORG-02 (suraj's owners) |
 | V0-GAT-04 | #6 | merged; the sink reads QQ_QUEUED_AT (test-pipelines 1e3ddb1). Numbers appear once infra-config adds the timing step and the queue runs |
