@@ -135,7 +135,8 @@ def _status_checks_rule(names) -> dict:
 
 
 def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_review: bool = False,
-             group_size: int = 5, state_branches: tuple[str, ...] = ()) -> list[dict]:
+             group_size: int = 5, state_branches: tuple[str, ...] = (),
+             dependabot_branches: bool = False) -> list[dict]:
     """V0-ORG-03: the repository rulesets (REST: POST /repos/{o}/{r}/rulesets) for one repo."""
     main, refs = settings["main"], settings["release_refs"]
     method = main["merge_method"].upper()
@@ -182,6 +183,21 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
                   "conditions": {"ref_name": {"include": [f"refs/heads/{b}" for b in state_branches],
                                               "exclude": []}},
                   "rules": [{"type": "deletion"}, {"type": "non_fast_forward"}]}]
+    # A tag named like a branch (`main`) satisfies a workflow's `github.ref_name == 'main'` test, so
+    # nobody may create, move or delete one.
+    tags = settings["reserved_tags"]
+    state.append({"name": tags["ruleset"], "target": "tag", "enforcement": "active", "bypass_actors": [],
+                  "conditions": {"ref_name": {"include": [f"refs/tags/{t}" for t in tags["names"]], "exclude": []}},
+                  "rules": lock})
+    if dependabot_branches:
+        # rollers lands a Dependabot PR only if nobody but Dependabot can change its branch after the
+        # check (its land check reads `update` and `non_fast_forward` on the PR branch).
+        bot = settings["dependabot"]
+        state.append({"name": bot["ruleset"], "target": "branch", "enforcement": "active",
+                      "bypass_actors": [{"actor_id": bot["actor_id"], "actor_type": "Integration",
+                                         "bypass_mode": "always"}],
+                      "conditions": {"ref_name": {"include": [bot["branches"]], "exclude": []}},
+                      "rules": [{"type": "update"}, {"type": "non_fast_forward"}]})
     return [
         {"name": main["ruleset"], "target": "branch", "enforcement": "active", "bypass_actors": [],
          "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": rules},
@@ -214,8 +230,9 @@ def org_ruleset(workflow: dict, targets: list[str], repository_id: int) -> dict:
     }
 
 
-def apply_org(owner: str, workflow: dict, targets: list[str], token: str, write: bool):
-    """Create or update one org ruleset by name. Yields a line after each write."""
+def plan_org(owner: str, workflow: dict, targets: list[str], token: str, max_minutes: int) -> dict:
+    """Read-only: check the file GitHub would run and compute the org ruleset write. Targets already
+    on a live ruleset of this name are kept, so a run limited to some repos never drops the others."""
     src = f"{API}/repos/{owner}/{workflow['repository']}"
     repo_id = _send("GET", src, token)["id"]
     at = workflow["ref"]
@@ -235,21 +252,22 @@ def apply_org(owner: str, workflow: dict, targets: list[str], token: str, write:
         raise GateError(f"org ruleset {workflow['ruleset']}: {workflow['path']} at {at} is not a file")
     from qqgate import settings as settings_mod  # settings loads backends; import late
     text = base64.b64decode(doc.get("content", "")).decode("utf-8", errors="replace")
-    problems = (settings_mod.pinned_workflow_problems(text, f"{owner}/{targets[0]}") if workflow.get("pinned")
-                else settings_mod.ruleset_workflow_problems(text))
+    problems = (settings_mod.pinned_workflow_problems(text, f"{owner}/{targets[0]}", max_minutes=max_minutes)
+                if workflow.get("pinned") else settings_mod.ruleset_workflow_problems(text, max_minutes))
     if problems:
         raise GateError(f"org ruleset {workflow['ruleset']}: {workflow['path']} at {at[:12]}: " + "; ".join(problems))
-    rs = org_ruleset(workflow, targets, repo_id)
     base = f"{API}/orgs/{owner}/rulesets"
     existing = {r["name"]: r["id"] for r in _send("GET", f"{base}?per_page=100", token)}
-    if rs["name"] in existing:
-        action, method, url = "update", "PUT", f"{base}/{existing[rs['name']]}"
-    else:
-        action, method, url = "create", "POST", base
-    if write:
-        _send(method, url, token, rs)
-    yield (f"{owner} (org): {action} ruleset {rs['name']} for {', '.join(targets)}"
-           + ("" if write else " (dry run)"))
+    if workflow["ruleset"] in existing:
+        url = f"{base}/{existing[workflow['ruleset']]}"
+        live = _send("GET", url, token)
+        kept = (((live.get("conditions") or {}).get("repository_name") or {}).get("include")) or []
+        if workflow.get("pinned") and set(kept) - set(targets):
+            raise GateError(f"org ruleset {workflow['ruleset']} is live for {kept}; a pinned ruleset judges only "
+                            f"{targets}: fix it in Settings > Rules first")
+        rs = org_ruleset(workflow, sorted(set(targets) | set(kept)), repo_id)
+        return _change(f"{owner} (org)", rs, url, live)
+    return _change(f"{owner} (org)", org_ruleset(workflow, targets, repo_id), base, None)
 
 
 def _send(method: str, url: str, token: str, body: dict | None = None):
@@ -291,19 +309,62 @@ def existing_protection(owner: str, repo: str, ours: set[str], token: str) -> li
     return out
 
 
-def apply(owner: str, repo: str, wanted: list[dict], token: str, write: bool):
-    """Create or update each wanted ruleset by name; never deletes rulesets it did not create.
-    Yields a line as soon as each write succeeds, so a failure part way shows what is already live."""
+def plan_repo(owner: str, repo: str, wanted: list[dict], token: str) -> list[dict]:
+    """Read-only: what writing each wanted ruleset would do (create, update with what differs, or
+    nothing). Rulesets are matched by name; one that differs from ours (a hand-made ruleset of that
+    name, or a bypass added in the UI) is an update the admin must allow with --overwrite."""
     base = f"{API}/repos/{owner}/{repo}/rulesets"
     existing = {r["name"]: r["id"] for r in _send("GET", f"{base}?includes_parents=false&per_page=100", token)}
+    out = []
     for rs in wanted:
         if rs["name"] in existing:
-            action, method, url = "update", "PUT", f"{base}/{existing[rs['name']]}"
+            url = f"{base}/{existing[rs['name']]}"
+            out.append(_change(f"{owner}/{repo}", rs, url, _send("GET", url, token)))
         else:
-            action, method, url = "create", "POST", base
-        if write:
-            _send(method, url, token, rs)
-        yield f"{owner}/{repo}: {action} ruleset {rs['name']}" + ("" if write else " (dry run)")
+            out.append(_change(f"{owner}/{repo}", rs, base, None))
+    return out
+
+
+def _change(where: str, rs: dict, url: str, live: dict | None) -> dict:
+    if live is None:
+        return {"where": where, "name": rs["name"], "action": "create", "method": "POST", "url": url, "body": rs,
+                "diff": []}
+    diff = _diff(live, rs)
+    return {"where": where, "name": rs["name"], "action": "update" if diff else "unchanged", "method": "PUT",
+            "url": url, "body": rs, "diff": diff}
+
+
+def _diff(live, ours, path: str = "") -> list[str]:
+    """Where the live ruleset differs from ours. Fields GitHub adds that we never send are ignored;
+    rules are matched by type, other lists must be equal (a bypass actor added in the UI shows)."""
+    if isinstance(ours, dict):
+        if not isinstance(live, dict):
+            return [path or "(ruleset)"]
+        return [d for k, v in ours.items() for d in _diff(live.get(k), v, f"{path}.{k}" if path else k)]
+    if isinstance(ours, list):
+        if not isinstance(live, list):
+            return [path]
+        if ours and all(isinstance(r, dict) and "type" in r for r in ours):
+            mine = {r["type"]: r for r in ours}
+            theirs = {r.get("type"): r for r in live if isinstance(r, dict)}
+            if set(mine) != set(theirs):
+                return [f"{path} ({', '.join(sorted(set(mine) ^ set(map(str, theirs))))})"]
+            return [d for t in mine for d in _diff(theirs[t], mine[t], f"{path}[{t}]")]
+        key = lambda x: json.dumps(x, sort_keys=True)  # noqa: E731
+        if len(live) != len(ours) or sorted(map(key, ours)) != sorted(map(key, live)):
+            if all(isinstance(x, dict) for x in ours + live) and len(live) == len(ours):
+                pairs = zip(sorted(live, key=key), sorted(ours, key=key))
+                if all(not _diff(a, b) for a, b in pairs):
+                    return []
+            return [path]
+        return []
+    return [] if live == ours else [path]
+
+
+def write(change: dict, token: str) -> str:
+    """Send one planned create or update; returns the line to print once it is live."""
+    _send(change["method"], change["url"], token, change["body"])
+    return f"{change['where']}: {change['action']} ruleset {change['name']}"
 
 
 def owner_repo(source: str) -> str:

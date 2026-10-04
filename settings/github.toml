@@ -11,7 +11,7 @@ owner = "quirq-ai"
 [main]
 # One ruleset on the default branch of every repo below.
 ruleset = "qq-main"
-merge_method = "squash"                  # gate.toml [merge_queue]; TODO(suraj): confirm squash for every repo
+merge_method = "squash"                  # gate.toml [merge_queue]; suraj confirmed squash for every repo (2026-10-04)
 required_approvals = 0                   # code-owner review on the verification surface is V0-GAT-03
 # Nobody bypasses the gate: no agent, and no admin. TODO(suraj): add an admin bypass only if you want a
 # break-glass path; it would be a policy change.
@@ -25,6 +25,20 @@ tags = ["lkgr", "channels/**"]
 # TODO(suraj): the release executor's identity (a GitHub App id, ideally the agent bot from the
 # open identity question). Until it exists nobody can create, move or delete these refs.
 bypass_integration_ids = []
+
+[reserved_tags]
+# Tags named like a branch. A tag called `main` satisfies a workflow's `github.ref_name == 'main'`
+# test, so in every repo nobody may create, move or delete one (perf audit).
+ruleset = "qq-reserved-tags"
+names = ["main"]
+
+[dependabot]
+# Product repos with dependabot_branches = true: only Dependabot may update or force-push its own PR
+# branches, so the commit rollers checked is the commit that lands (rollers land_check reads
+# `update` and `non_fast_forward` on the PR branch). actor_id is GitHub's Dependabot app.
+ruleset = "qq-dependabot-branches"
+branches = "refs/heads/dependabot/**"
+actor_id = 29110
 
 # Organization rulesets: "Require workflows to pass before merging". Each runs a workflow from
 # another repo's main, so a PR cannot satisfy it with its own same-named job (audit S6: a required
@@ -49,9 +63,9 @@ targets = "product"
 # toolchains' promotion gate, always from main, so a PR cannot weaken or impersonate the gate that
 # decides what promoted.toml may say (toolchains audit; its gate.py handles this pull_request run).
 ruleset = "qq-toolchains-promotion-gate"
-# Off until promotion-gate.yml stops using cancel-in-progress, which GitHub says a ruleset workflow
-# must not (a cancelled run blocks the PR until re-run); apply --org refuses it until then.
-enabled = false
+# On from toolchains eb71c8e (#13): no cancel-in-progress (#12) and timeout-minutes 35, within
+# gate.toml's 40 (the queue drops an entry whose check has not reported by then).
+enabled = true
 repository = "toolchains"
 path = ".github/workflows/promotion-gate.yml"
 ref = "refs/heads/main"
@@ -64,27 +78,27 @@ targets = ["toolchains"]
 # apply --org checks the pinned file: on pull_request and merge_group, no path filter, no job that can
 # skip (the only job `if:` allowed is `github.repository == 'quirq-ai/<repo>'`) and no job or step
 # with continue-on-error. What the steps run is reviewed in infra-config at the pinned commit.
-# Off: the files at this sha use cancel-in-progress, which GitHub says a ruleset workflow must not;
-# infra-config regenerates them, then `sha` moves and both are enabled.
+# On from infra-config #19 (eaa2c88), whose files dropped cancel-in-progress (GitHub: a ruleset
+# workflow must not cancel in progress).
 # A builder change in infra-config reaches these only when `sha` moves here (a reviewed gate PR); a
 # renamed builder renames the file, so `path` changes with it.
 ruleset = "qq-xo-space-presubmit-pinned"
-enabled = false
+enabled = true
 pinned = true                        # one target, named in the file; sha required to enable
 repository = "infra-config"
 path = ".github/workflows/qq-required-xo-space-presubmit.yml"
 ref = "refs/heads/main"
-sha = "c5e81c04998240dd08a29c4dc85a485944a44910"   # infra-config main at #17 (files from #15)
+sha = "eaa2c88516fe8a8d9c581a65bebe9f9fbfae67c3"   # infra-config main at #19 (no concurrency)
 targets = ["xo-space"]
 
 [[org_workflows]]
 ruleset = "qq-innernet-presubmit-pinned"
-enabled = false
+enabled = true
 pinned = true
 repository = "infra-config"
 path = ".github/workflows/qq-required-innernet-presubmit.yml"
 ref = "refs/heads/main"
-sha = "c5e81c04998240dd08a29c4dc85a485944a44910"   # infra-config main at #17 (files from #15)
+sha = "eaa2c88516fe8a8d9c581a65bebe9f9fbfae67c3"   # infra-config main at #19 (no concurrency)
 targets = ["innernet"]
 
 # --- product repos (required checks from infra-config) ---------------------------------------
@@ -96,11 +110,13 @@ kind = "product"
 # (through pytest; xo-space #214 audit), and V0-ONB-01 deletes tests.yml, which a required `tests`
 # would block.
 transitional_checks = []
+dependabot_branches = true
 
 [[repo]]
 name = "innernet"
 kind = "product"
 transitional_checks = []
+dependabot_branches = true
 
 # --- infra repos (hand-written presubmits, read from each repo's workflows on 2026-10-04) --------
 
@@ -139,7 +155,7 @@ checks = ["presubmit"]
 [[repo]]
 name = "toolchains"
 kind = "infra"
-checks = ["ci"]                      # aggregates unit and promotions
+checks = ["ci"]                      # aggregates unit
 # promotion-gate is enforced by the qq-toolchains-promotion-gate org ruleset above, not listed here:
 # it runs on pull_request_target, and a same-named job in a PR could satisfy a status check.
 code_owner_review = true             # CODEOWNERS: .github/, tools/, toolchains/, promoted.toml
@@ -161,6 +177,7 @@ name = "perf"
 kind = "infra"
 # measure-result aggregates the `measure` matrix (build size and benchmarks end to end).
 checks = ["presubmit", "measure-result"]
+state_branches = ["perf-data"]       # the measurement history; its workflow appends, never rewrites
 
 [[repo]]
 name = "gardener"
