@@ -205,3 +205,7 @@ command again; it sets the ruleset back to active.
 
 Done-when check after applying: `git push origin HEAD:main` to any written repo is refused, and a PR
 lands only through the merge queue.
+
+## Landing a PR once the rulesets are on
+
+`main` then takes merges only through the merge queue, so the REST merge endpoint is refused.
