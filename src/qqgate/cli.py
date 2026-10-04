@@ -6,6 +6,11 @@
         The backend's rule (GitHub: a ruleset rule) that makes those checks required.
     qqgate verdict --config DIR --repo NAME (--observed FILE | --sha SHA) [--json]
         Pass or refuse one commit. Exit 0 on pass, 1 when refused.
+    qqgate settings plan|verify|apply --config DIR [...]   (V0-ORG-03)
+        plan: every repo's rulesets as JSON. verify --checkouts DIR: which repos are safe to apply
+        (each required check runs on pull_request and merge_group there). apply: create or update the
+        rulesets of ready repos; dry run unless --yes. Needs an admin token in QQ_GITHUB_TOKEN.
+Exit codes: 0 ok or pass, 1 refused or not ready, 2 the gate could not decide.
 """
 from __future__ import annotations
 
@@ -14,7 +19,9 @@ import json
 import sys
 from pathlib import Path
 
-from qqgate import __version__, backends, config, required, verdict
+import os
+
+from qqgate import __version__, backends, config, required, settings, verdict
 from qqgate.errors import GateError
 
 
@@ -64,6 +71,57 @@ def cmd_verdict(args) -> int:
     return 0 if v.passed else 1
 
 
+def _plans(args):
+    cfg = config.load(Path(args.config), validate=not args.no_validate)
+    backend = cfg["gate"]["merge_queue"]["backend"]
+    s = settings.load_settings(backend)
+    plans = settings.build(s, cfg, Path(args.config))
+    if args.repo:
+        plans = [p for p in plans if p.name in args.repo]
+        unknown = set(args.repo) - {p.name for p in plans}
+        if unknown:
+            raise GateError(f"not in settings: {sorted(unknown)}")
+    return cfg, backend, s, plans
+
+
+def _ready(plans, checkouts):
+    return {p.name: settings.readiness(p, Path(checkouts) / p.name) for p in plans}
+
+
+def cmd_settings(args) -> int:
+    cfg, backend, s, plans = _plans(args)
+    mod = backends.load(backend)
+    if args.action == "plan":
+        out = {p.name: {"kind": p.kind, "required": list(p.checks), "rulesets": list(p.rulesets)} for p in plans}
+        if not args.repo:
+            out["(org)"] = {"rulesets": [mod.org_ruleset(s, cfg, repository_id=0)]}  # id looked up at apply
+        print(json.dumps(out, indent=2))
+        return 0
+    if not args.checkouts:
+        raise GateError(f"settings {args.action} needs --checkouts DIR with each repo's default branch")
+    ready = _ready(plans, args.checkouts)
+    for p in plans:
+        why = ready[p.name]
+        print(f"{'ready    ' if not why else 'NOT READY'} {p.name:<15} required: {', '.join(p.checks) or '(none yet)'}")
+        for w in why:
+            print(f"            {w}")
+    if args.action == "verify":
+        return 0 if all(not w for w in ready.values()) else 1
+    token = os.environ.get("QQ_GITHUB_TOKEN")
+    if not token:
+        raise GateError("apply needs an admin token in QQ_GITHUB_TOKEN (for example: QQ_GITHUB_TOKEN=$(gh auth token))")
+    if args.org:
+        for line in mod.apply_org(s["org"]["owner"], s, cfg, token, write=args.yes):
+            print(line)
+    for p in plans:
+        if ready[p.name]:
+            print(f"skip     {p.name}: not ready")
+            continue
+        for line in mod.apply(s["org"]["owner"], p.name, list(p.rulesets), token, write=args.yes):
+            print(line)
+    return 0 if all(not w for w in ready.values()) else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="qqgate", description=__doc__.splitlines()[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
@@ -84,6 +142,15 @@ def main(argv: list[str] | None = None) -> int:
             g = p.add_mutually_exclusive_group(required=True)
             g.add_argument("--observed", help="JSON file: check name -> conclusion")
             g.add_argument("--sha", help="commit to read check results for from the backend")
+    st = sub.add_parser("settings", help="merge queue and rulesets as code (V0-ORG-03)")
+    st.set_defaults(fn=cmd_settings)
+    st.add_argument("action", choices=["plan", "verify", "apply"])
+    st.add_argument("--config", required=True, help="infra-config checkout (pins.toml [infra-config])")
+    st.add_argument("--repo", action="append", help="limit to these repos (repeatable)")
+    st.add_argument("--checkouts", help="directory holding a default-branch checkout of each repo, by name")
+    st.add_argument("--yes", action="store_true", help="apply: really write (default is a dry run)")
+    st.add_argument("--org", action="store_true", help="apply: also the org ruleset (qq-drift workflow)")
+    st.add_argument("--no-validate", action="store_true", help="skip qqcfg validate (tests only)")
     args = ap.parse_args(argv)
     try:
         return args.fn(args)

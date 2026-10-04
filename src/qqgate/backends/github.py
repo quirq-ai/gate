@@ -84,17 +84,128 @@ def check_workflows(config_root: Path, required: RequiredSet) -> list[str]:
 
 def required_checks_rule(required: RequiredSet) -> dict:
     """The `required_status_checks` rule of a repository ruleset (REST: POST /repos/{o}/{r}/rulesets)."""
+    return _status_checks_rule(required.names)
+
+
+def _status_checks_rule(names) -> dict:
+    # The merge queue tests the exact merge result, so the branch need not be up to date (strict off).
     return {
         "type": "required_status_checks",
         "parameters": {
-            # The merge queue tests the exact merge result, so the branch need not be up to date.
             "strict_required_status_checks_policy": False,
             "do_not_enforce_on_create": False,
-            "required_status_checks": [
-                {"context": name, "integration_id": GITHUB_ACTIONS_APP_ID} for name in required.names
-            ],
+            "required_status_checks": [{"context": n, "integration_id": GITHUB_ACTIONS_APP_ID} for n in names],
         },
     }
+
+
+def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...]) -> list[dict]:
+    """V0-ORG-03: the repository rulesets (REST: POST /repos/{o}/{r}/rulesets) for one repo."""
+    main, refs = settings["main"], settings["release_refs"]
+    method = main["merge_method"].upper()
+    if method.lower() != cfg["gate"]["merge_queue"]["merge_method"]:
+        raise GateError(f"settings merge_method {main['merge_method']!r} differs from gate.toml's "
+                        f"{cfg['gate']['merge_queue']['merge_method']!r}")
+    if main["bypass"]:
+        raise GateError("settings [main] bypass must stay empty: nobody overrides the gate (policy change)")
+    rules = [
+        {"type": "deletion"},
+        {"type": "non_fast_forward"},
+        {"type": "pull_request", "parameters": {
+            "required_approving_review_count": main["required_approvals"],
+            "dismiss_stale_reviews_on_push": True,
+            "require_code_owner_review": False,
+            "require_last_push_approval": False,
+            "required_review_thread_resolution": False,
+            "allowed_merge_methods": [main["merge_method"]],
+        }},
+        {"type": "merge_queue", "parameters": {
+            # A verdict must arrive within the admission bar's hard limit (gate.toml [admission]).
+            "check_response_timeout_minutes": cfg["gate"]["admission"]["max_minutes"],
+            "grouping_strategy": "ALLGREEN",
+            "max_entries_to_build": 5,
+            "max_entries_to_merge": 5,
+            "merge_method": method,
+            "min_entries_to_merge": 1,
+            "min_entries_to_merge_wait_minutes": 5,
+        }},
+    ]
+    if checks:
+        rules.append(_status_checks_rule(checks))
+    bypass = [{"actor_id": i, "actor_type": "Integration", "bypass_mode": "always"}
+              for i in refs["bypass_integration_ids"]]
+    lock = [{"type": t} for t in ("creation", "update", "deletion", "non_fast_forward")]
+    return [
+        {"name": main["ruleset"], "target": "branch", "enforcement": "active", "bypass_actors": [],
+         "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": rules},
+        {"name": refs["ruleset"] + "-branches", "target": "branch", "enforcement": "active", "bypass_actors": bypass,
+         "conditions": {"ref_name": {"include": [f"refs/heads/{b}" for b in refs["branches"]], "exclude": []}},
+         "rules": lock},
+        {"name": refs["ruleset"] + "-tags", "target": "tag", "enforcement": "active", "bypass_actors": bypass,
+         "conditions": {"ref_name": {"include": [f"refs/tags/{t}" for t in refs["tags"]], "exclude": []}},
+         "rules": lock},
+    ]
+
+
+def org_ruleset(settings: dict, cfg: dict, repository_id: int) -> dict:
+    """The org ruleset that runs infra-config's drift workflow in every product repo (V0-CFG-02).
+    `repository_id` is infra-config's numeric GitHub id, looked up at apply time."""
+    w = settings["org_workflows"]
+    return {
+        "name": w["ruleset"], "target": "branch", "enforcement": "active", "bypass_actors": [],
+        "conditions": {
+            "ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []},
+            "repository_name": {"include": sorted(r["name"] for r in cfg["repos"]["repo"]),
+                                "exclude": [], "protected": True},
+        },
+        "rules": [{"type": "workflows", "parameters": {
+            "do_not_enforce_on_create": False,
+            "workflows": [{"path": w["path"], "repository_id": repository_id, "ref": w["ref"]}],
+        }}],
+    }
+
+
+def apply_org(owner: str, settings: dict, cfg: dict, token: str, write: bool) -> list[str]:
+    repo_id = _send("GET", f"{API}/repos/{owner}/{settings['org_workflows']['repository']}", token)["id"]
+    rs = org_ruleset(settings, cfg, repo_id)
+    base = f"{API}/orgs/{owner}/rulesets"
+    existing = {r["name"]: r["id"] for r in _send("GET", f"{base}?per_page=100", token)}
+    if rs["name"] in existing:
+        action, method, url = "update", "PUT", f"{base}/{existing[rs['name']]}"
+    else:
+        action, method, url = "create", "POST", base
+    if write:
+        _send(method, url, token, rs)
+    return [f"{owner} (org): {action} ruleset {rs['name']}" + ("" if write else " (dry run)")]
+
+
+def _send(method: str, url: str, token: str, body: dict | None = None):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method, headers={
+        "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+        "Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode(errors="replace")[:500]
+        raise GateError(f"GitHub API {method} {url}: {e.code} {e.reason}: {detail}") from None
+
+
+def apply(owner: str, repo: str, wanted: list[dict], token: str, write: bool) -> list[str]:
+    """Create or update each wanted ruleset by name; never deletes rulesets it did not create."""
+    base = f"{API}/repos/{owner}/{repo}/rulesets"
+    existing = {r["name"]: r["id"] for r in _send("GET", f"{base}?includes_parents=false&per_page=100", token)}
+    done = []
+    for rs in wanted:
+        if rs["name"] in existing:
+            action, method, url = "update", "PUT", f"{base}/{existing[rs['name']]}"
+        else:
+            action, method, url = "create", "POST", base
+        if write:
+            _send(method, url, token, rs)
+        done.append(f"{owner}/{repo}: {action} ruleset {rs['name']}" + ("" if write else " (dry run)"))
+    return done
 
 
 def owner_repo(source: str) -> str:
