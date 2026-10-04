@@ -130,7 +130,7 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
     if method.lower() != cfg["gate"]["merge_queue"]["merge_method"]:
         raise GateError(f"settings merge_method {main['merge_method']!r} differs from gate.toml's "
                         f"{cfg['gate']['merge_queue']['merge_method']!r}")
-    if not 1 <= group_size <= 5:
+    if isinstance(group_size, bool) or not isinstance(group_size, int) or not 1 <= group_size <= 5:
         raise GateError(f"queue_group_size {group_size} must be 1 to 5")
     if main["bypass"]:
         raise GateError("settings [main] bypass must stay empty: nobody overrides the gate (policy change)")

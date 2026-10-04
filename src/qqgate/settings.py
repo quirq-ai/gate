@@ -8,6 +8,7 @@ on both pull_request and merge_group, or the queue would wait forever on a check
 from __future__ import annotations
 
 import fnmatch
+import json
 import subprocess
 import tomllib
 from dataclasses import dataclass, field
@@ -69,10 +70,19 @@ def build(settings: dict, cfg: dict, config_root: Path) -> list[RepoPlan]:
             checks = tuple(r.get("checks", []))
         if len(set(checks)) != len(checks):
             raise GateError(f"{r['name']}: a required check is listed twice: {checks}")
-        rulesets = mod.rulesets(settings, cfg, checks, code_owner_review=bool(r.get("code_owner_review", False)),
-                                 group_size=int(r.get("queue_group_size", 5)))
+        rulesets = mod.rulesets(settings, cfg, checks, **repo_options(r))
         plans.append(RepoPlan(r["name"], r["kind"], checks, tuple(rulesets)))
     return plans
+
+
+def repo_options(r: dict) -> dict:
+    """Per-repo ruleset options from settings/<backend>.toml, type-checked."""
+    owners, size = r.get("code_owner_review", False), r.get("queue_group_size", 5)
+    if not isinstance(owners, bool):
+        raise GateError(f"{r['name']}: code_owner_review must be true or false, not {owners!r}")
+    if isinstance(size, bool) or not isinstance(size, int):
+        raise GateError(f"{r['name']}: queue_group_size must be an integer, not {size!r}")
+    return {"code_owner_review": owners, "group_size": size}
 
 
 @dataclass
@@ -85,18 +95,20 @@ class Job:
     path_filtered: bool = False
     reusable: bool = False     # `uses:` a reusable workflow: reports as "job / inner job"
     pr_filters: list[dict] = field(default_factory=list)   # pull_request: branches / types per workflow
+    mg_filters: list[dict] = field(default_factory=list)   # merge_group: types per workflow
+    reads_needs: bool = False  # the job looks at needs.<job>.result (an always() aggregator must)
 
 
-def _events(on) -> tuple[set[str], bool, dict]:
+def _events(on) -> tuple[set[str], bool, dict, dict]:
     if isinstance(on, str):
-        return {on}, False, {}
+        return {on}, False, {}, {}
     if isinstance(on, list):
-        return set(on), False, {}
+        return set(on), False, {}, {}
     on = on if isinstance(on, dict) else {}
     filtered = any(isinstance(v, dict) and ("paths" in v or "paths-ignore" in v)
                    for k, v in on.items() if k in GATE_EVENTS)
-    pr = on.get("pull_request")
-    return set(on), filtered, pr if isinstance(pr, dict) else {}
+    pr, mg = on.get("pull_request"), on.get("merge_group")
+    return set(on), filtered, pr if isinstance(pr, dict) else {}, mg if isinstance(mg, dict) else {}
 
 
 def workflow_jobs(checkout: Path) -> dict[str, Job]:
@@ -109,7 +121,7 @@ def workflow_jobs(checkout: Path) -> dict[str, Job]:
             raise GateError(f"{wf}: not valid YAML: {e}") from None
         if not isinstance(doc, dict):
             continue
-        events, filtered, pr = _events(doc.get("on", doc.get(True)))
+        events, filtered, pr, mg = _events(doc.get("on", doc.get(True)))
         for job_id, job in (doc.get("jobs") or {}).items():
             job = job if isinstance(job, dict) else {}
             name = str(job.get("name", job_id))
@@ -124,6 +136,9 @@ def workflow_jobs(checkout: Path) -> dict[str, Job]:
             j.reusable = j.reusable or "uses" in job
             if pr:
                 j.pr_filters.append(pr)
+            if mg:
+                j.mg_filters.append(mg)
+            j.reads_needs = j.reads_needs or "needs." in json.dumps(job, default=str)
     return jobs
 
 
@@ -139,11 +154,28 @@ def _as_list(v) -> list[str]:
     return [v] if isinstance(v, str) else [str(x) for x in (v or [])]
 
 
-def _pr_problems(check: str, filters: list[dict], default_branch: str) -> list[str]:
+def _branch_selected(branch: str, patterns: list[str]) -> bool:
+    """GitHub's `branches:` semantics: patterns apply in order, a `!` pattern excludes, the last
+    matching pattern wins."""
+    selected = False
+    for p in patterns:
+        if p.startswith("!"):
+            if fnmatch.fnmatchcase(branch, p[1:]):
+                selected = False
+        elif fnmatch.fnmatchcase(branch, p):
+            selected = True
+    return selected
+
+
+def _pr_problems(check: str, filters: list[dict], default_branch: str, mg_filters: list[dict] = ()) -> list[str]:
     out = []
+    for f in mg_filters:
+        types = _as_list(f.get("types"))
+        if types and "checks_requested" not in types:
+            out.append(f"required check {check!r} runs on merge_group types {types} without checks_requested")
     for f in filters:
         branches, ignore = _as_list(f.get("branches")), _as_list(f.get("branches-ignore"))
-        if branches and not any(fnmatch.fnmatchcase(default_branch, b) for b in branches):
+        if branches and not _branch_selected(default_branch, branches):
             out.append(f"required check {check!r} runs on pull_request only for branches {branches}, "
                        f"never for PRs into {default_branch}")
         if any(fnmatch.fnmatchcase(default_branch, b) for b in ignore):
@@ -181,7 +213,8 @@ def readiness(plan: RepoPlan, checkout: Path, allow_conditional: tuple[str, ...]
             out.append(f"required check {c!r} is not a job on the default branch (merge the PR that adds it first)")
             continue
         if len(j.workflows) > 1:
-            out.append(f"required check {c!r} is a job in several workflows ({', '.join(j.workflows)}); "
+            where = ", ".join(sorted(set(j.workflows)))
+            out.append(f"required check {c!r} is the name of {len(j.workflows)} jobs ({where}); "
                        "rename one so the name means one thing")
         missing = [e for e in GATE_EVENTS if e not in j.events]
         if missing:
@@ -193,8 +226,11 @@ def readiness(plan: RepoPlan, checkout: Path, allow_conditional: tuple[str, ...]
                        "never under its own name")
         if j.path_filtered:
             out.append(f"required check {c!r} is in a workflow filtered by paths, so it may never report")
-        out += _pr_problems(c, j.pr_filters, default_branch)
+        out += _pr_problems(c, j.pr_filters, default_branch, j.mg_filters)
         always = _is_always(j.condition)
+        if j.needs and always and not j.reads_needs:
+            out.append(f"required check {c!r} runs after {', '.join(j.needs)} with `if: always()` but never "
+                       "reads needs.<job>.result, so it passes even when they fail")
         if j.needs and not always:
             out.append(f"required check {c!r} needs {', '.join(j.needs)} without exactly `if: always()`: a "
                        "failed dependency skips it, and GitHub counts a skipped required check as passing")
@@ -219,7 +255,7 @@ class CheckoutState:
     problems: tuple[str, ...]  # why this checkout cannot be trusted for readiness
 
 
-def checkout_state(checkout: Path) -> CheckoutState:
+def checkout_state(checkout: Path, expected_origin: str | None = None) -> CheckoutState:
     """Is this checkout the remote default branch's current head? Readiness read from a stale or
     wrong-branch clone could approve rules the live repo cannot meet (audit S5), and a repo with no
     commits would have its first push to main refused by qq-main (audit S1)."""
@@ -230,6 +266,8 @@ def checkout_state(checkout: Path) -> CheckoutState:
     url = _git(checkout, "config", "--get", "remote.origin.url")
     if not url:
         return CheckoutState(head, "main", ("no origin remote, so it cannot be compared with the default branch",))
+    if expected_origin and url.removesuffix(".git").rstrip("/") != expected_origin:
+        return CheckoutState(head, "main", (f"cloned from {url}, not {expected_origin}; clone the real repo",))
     remote = _git(checkout, "ls-remote", "--symref", url, "HEAD")
     if remote is None:
         return CheckoutState(head, "main", (f"cannot read {url} to confirm the checkout is current",))
@@ -240,9 +278,13 @@ def checkout_state(checkout: Path) -> CheckoutState:
             branch = ref.removeprefix("ref: refs/heads/")
         elif name == "HEAD":
             remote_head = ref
-    if head is None or remote_head is None:
+    if head is None and remote_head is None:
         return CheckoutState(head, branch, ("empty repository (no commits yet): qq-main would refuse the push "
                                             "that creates the default branch; push a first commit, then apply",))
+    if remote_head is None:
+        return CheckoutState(head, branch, (f"{url} reports no default branch head; cannot confirm the checkout",))
+    if head is None:
+        return CheckoutState(head, branch, ("the checkout has no commits but the repo does: delete it and clone again",))
     problems = []
     local_branch = _git(checkout, "symbolic-ref", "--short", "-q", "HEAD")
     if local_branch != branch:

@@ -26,8 +26,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -98,39 +100,94 @@ def _plans(args):
     return cfg, backend, s, plans
 
 
-def _plan_json(backend: str, plans, org: list[dict]) -> dict:
-    out = {"(backend)": backend}
+def _plan_json(cfg: dict, backend: str, plans, org: list[dict]) -> dict:
+    out = {"(backend)": backend,
+           "(gate)": {"merge_method": cfg["gate"]["merge_queue"]["merge_method"],
+                      "max_minutes": cfg["gate"]["admission"]["max_minutes"]}}
     out.update({p.name: {"kind": p.kind, "required": list(p.checks), "rulesets": list(p.rulesets)} for p in plans})
     out["(org)"] = org
     return out
 
 
-def _secret_env(name: str) -> bool:
-    n = name.upper()
-    return (any(w in n for w in ("TOKEN", "SECRET", "PASSWORD", "KEY", "CREDENTIAL"))
-            or n.startswith(("GH_", "GITHUB_")))
+# The child gets only what the interpreter needs, and an empty HOME: no tokens, no SSH agent, no
+# netrc, no gh or git config. It still runs as the same OS user, so the pinned, reviewed infra-config
+# commit is what makes its code trustworthy; this keeps credentials out of its reach by default.
+_CHILD_ENV = ("PATH", "LANG", "LANGUAGE", "TZ", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT", "VIRTUAL_ENV",
+              "PYTHONIOENCODING", "PYTHONUTF8")
+
+
+def _child_env(home: str) -> dict:
+    env = {k: v for k, v in os.environ.items() if k in _CHILD_ENV or k.startswith("LC_")}
+    env.update(HOME=home, USERPROFILE=home, XDG_CONFIG_HOME=home, PYTHONNOUSERSITE="1")
+    return env
 
 
 def _plan_without_token(args) -> dict:
     """Run `settings plan` in a child process with no credentials in its environment (audit S8).
-    Planning executes infra-config's tools/qqcfg.py; the process holding the admin token never does."""
+    Planning executes infra-config's tools/qqcfg.py; the process holding the admin token never does,
+    and it rebuilds every ruleset itself from settings (`_trusted_plans`), so the child only supplies
+    product repos' required check names and gate.toml's merge method and admission limit."""
     cmd = [sys.executable, "-c", "import sys; from qqgate.cli import main; sys.exit(main(sys.argv[1:]))",
-           "settings", "plan", "--config", str(args.config)]
+           "settings", "plan", "--config", str(Path(args.config).resolve())]
     for r in args.repo or ():
         cmd += ["--repo", r]
     if args.no_validate:
         cmd.append("--no-validate")
-    env = {k: v for k, v in os.environ.items() if not _secret_env(k)}
-    try:
-        r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=600)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        raise GateError(f"computing the plan failed: {e}") from None
+    with tempfile.TemporaryDirectory(prefix="qqgate-plan-") as home:
+        try:
+            r = subprocess.run(cmd, env=_child_env(home), cwd=home, capture_output=True, text=True, timeout=600)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise GateError(f"computing the plan failed: {e}") from None
     if r.returncode != 0:
         raise GateError(f"computing the plan failed (exit {r.returncode}): {r.stderr.strip()}")
     try:
-        return json.loads(r.stdout)
+        data = json.loads(r.stdout)
     except json.JSONDecodeError as e:
         raise GateError(f"computing the plan printed something other than JSON: {e}") from None
+    if not isinstance(data, dict):
+        raise GateError("computing the plan printed JSON that is not an object")
+    return data
+
+
+CHECK_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,99}$")
+
+
+def _trusted_plans(data: dict, wanted: list[str] | None):
+    """Rebuild the plan in this process from settings/github.toml, taking only check names and two
+    gate.toml values from the child, each validated; refuse if the child's rulesets differ."""
+    backend = data.get("(backend)")
+    if backend != "github":
+        raise GateError(f"plan names backend {backend!r}; only 'github' has settings")
+    s = settings.load_settings(backend)
+    mod = backends.load(backend)
+    gate = data.get("(gate)") or {}
+    method, minutes = gate.get("merge_method"), gate.get("max_minutes")
+    if method != s["main"]["merge_method"] or not isinstance(minutes, int) or not 1 <= minutes <= 360:
+        raise GateError(f"plan's gate values {gate!r} are not plausible (merge_method must be "
+                        f"{s['main']['merge_method']!r}, max_minutes 1 to 360)")
+    cfg = {"gate": {"merge_queue": {"merge_method": method}, "admission": {"max_minutes": minutes}},
+           "repos": {"repo": [{"name": r["name"]} for r in s["repo"] if r["kind"] == "product"]}}
+    names = [r["name"] for r in s["repo"] if not wanted or r["name"] in wanted]
+    got = sorted(k for k in data if not k.startswith("("))
+    if got != sorted(names):
+        raise GateError(f"plan lists repos {got}, settings say {sorted(names)}")
+    plans = []
+    for r in (r for r in s["repo"] if r["name"] in names):
+        d = data[r["name"]]
+        required = d.get("required")
+        if d.get("kind") != r["kind"] or not isinstance(required, list) or not all(
+                isinstance(c, str) and CHECK_NAME.match(c) for c in required) or len(set(required)) != len(required):
+            raise GateError(f"plan entry for {r['name']} is not plausible: {d.get('kind')!r} {required!r}")
+        if r["kind"] == "infra" and required != list(r.get("checks", [])):
+            raise GateError(f"plan's checks for {r['name']} {required} differ from settings {r.get('checks', [])}")
+        tail = list(r.get("transitional_checks", []))
+        if r["kind"] == "product" and (not required[len(required) - len(tail):] == tail or len(required) <= len(tail)):
+            raise GateError(f"plan's checks for {r['name']} {required} do not end with transitional {tail}")
+        rulesets = mod.rulesets(s, cfg, tuple(required), **settings.repo_options(r))
+        if rulesets != d.get("rulesets"):
+            raise GateError(f"plan's rulesets for {r['name']} differ from what settings/github.toml builds")
+        plans.append(settings.RepoPlan(r["name"], r["kind"], tuple(required), tuple(rulesets)))
+    return s, mod, plans, settings.org_workflows(s, cfg)
 
 
 def _config_at_pin(config_root: Path) -> str | None:
@@ -140,6 +197,8 @@ def _config_at_pin(config_root: Path) -> str | None:
     head = settings._git(config_root, "rev-parse", "HEAD")
     if head != want:
         return f"--config {config_root} is at {head or 'no commit'}, not pins.toml's infra-config {want}"
+    if settings._git(config_root, "status", "--porcelain", "--untracked-files=no"):
+        return f"--config {config_root} has local changes; use a clean checkout of {want}"
     return None
 
 
@@ -149,9 +208,10 @@ def _ready(plans, checkouts, s):
     out, heads = {}, {}
     for p in plans:
         co = Path(checkouts) / p.name
-        st = settings.checkout_state(co)
+        st = settings.checkout_state(co, f"https://github.com/{s['org']['owner']}/{p.name}")
         heads[p.name] = st.head
-        out[p.name] = list(st.problems) or settings.readiness(p, co, allow.get(p.name, ()), st.branch)
+        found = settings.readiness(p, co, allow.get(p.name, ()), st.branch) if st.head else []
+        out[p.name] = list(st.problems) + [w for w in found if w not in st.problems]
     return out, heads
 
 
@@ -168,7 +228,7 @@ def _print_ready(plans, ready, heads):
 def cmd_settings(args) -> int:
     if args.action == "plan":
         cfg, backend, s, plans = _plans(args)
-        print(json.dumps(_plan_json(backend, plans, settings.org_workflows(s, cfg)), indent=2))
+        print(json.dumps(_plan_json(cfg, backend, plans, settings.org_workflows(s, cfg)), indent=2))
         return 0
     if not args.checkouts:
         raise GateError(f"settings {args.action} needs --checkouts DIR with each repo's default branch")
@@ -190,12 +250,7 @@ def _apply(args) -> int:
     stale = _config_at_pin(Path(args.config))
     if stale:
         raise GateError(f"{stale}; check out the pinned commit (docs/apply-settings.md)")
-    data = _plan_without_token(args)
-    backend = data.pop("(backend)")
-    org = data.pop("(org)")
-    s = settings.load_settings(backend)
-    mod = backends.load(backend)
-    plans = [settings.RepoPlan(n, d["kind"], tuple(d["required"]), tuple(d["rulesets"])) for n, d in data.items()]
+    s, mod, plans, org = _trusted_plans(_plan_without_token(args), args.repo)
     ready, heads = _ready(plans, args.checkouts, s)
     _print_ready(plans, ready, heads)
     owner = s["org"]["owner"]
@@ -207,8 +262,11 @@ def _apply(args) -> int:
                 print(f"WARNING  {p.name}: {line}", flush=True)
             for line in mod.apply(owner, p.name, list(p.rulesets), token, write=args.yes):
                 print(line, flush=True)
-        except GateError as e:
-            return _stopped(p.name, e, [q.name for q in todo[i + 1:]], args.yes)
+        except Exception as e:  # any failure part way still reports what is live
+            rest = [q.name for q in todo[i + 1:]]
+            if args.org:
+                rest += [f"org ruleset {w['ruleset']}" for w in org if w.get("enabled", False)]
+            return _stopped(p.name, e, rest, args.yes)
     not_ready = sum(1 for w in ready.values() if w)
     if args.org:
         enabled = [w for w in org if w.get("enabled", False)]
@@ -225,15 +283,15 @@ def _apply(args) -> int:
             try:
                 for line in mod.apply_org(owner, w, targets, token, write=args.yes):
                     print(line, flush=True)
-            except GateError as e:
+            except Exception as e:
                 return _stopped(f"org ruleset {w['ruleset']}", e, [x["ruleset"] for x in enabled[i + 1:]], args.yes)
     print(f"done     {len(todo)} repo(s) {'written' if args.yes else 'checked (dry run)'}, {not_ready} not ready",
           flush=True)
     return 1 if not_ready else 0
 
 
-def _stopped(what: str, e: GateError, rest: list[str], wrote: bool) -> int:
-    print(f"FAILED   {what}: {e}", flush=True)
+def _stopped(what: str, e: Exception, rest: list[str], wrote: bool) -> int:
+    print(f"FAILED   {what}: {e if isinstance(e, GateError) else f'{type(e).__name__}: {e}'}", flush=True)
     if wrote:
         print("         Every line above without '(dry run)' is already live on GitHub. Not attempted: "
               f"{', '.join(rest) or 'nothing'}. Re-running is safe: rulesets are created or updated by name.",

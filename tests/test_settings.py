@@ -6,7 +6,10 @@ import pytest
 
 from qqgate import settings
 from qqgate.backends import github
+from qqgate import cli as _cli
 from qqgate.cli import main
+
+REAL_PLAN = _cli._plan_without_token
 from qqgate.errors import GateError
 
 
@@ -181,7 +184,8 @@ def test_required_jobs_that_can_skip_or_rename_are_not_ready(s, cfg, config_root
 def test_always_aggregator_and_allowed_condition_are_ready(s, cfg, config_root, tmp_path):
     plan = plans_by_name(s, cfg, config_root)["sync"]
     co = _checkout(tmp_path, "x", "on: [pull_request, merge_group]\njobs:\n  b:\n    runs-on: x\n"
-                   "  test:\n    needs: b\n    if: always()\n    runs-on: x\n")
+                   "  test:\n    needs: b\n    if: always()\n    runs-on: x\n"
+                   "    steps:\n      - run: test \"${{ needs.b.result }}\" = success\n")
     assert settings.readiness(plan, co) == []
     co2 = _checkout(tmp_path, "y", "on: [pull_request, merge_group]\njobs:\n  test:\n    if: false\n")
     assert settings.readiness(plan, co2, allow_conditional=("test",)) == []
@@ -192,7 +196,7 @@ def test_path_filtered_and_duplicate_names_are_not_ready(s, cfg, config_root, tm
     co = _checkout(tmp_path, "x", "on:\n  pull_request:\n    paths: [src/**]\n  merge_group:\njobs:\n  test:\n    runs-on: x\n")
     (co / ".github" / "workflows" / "other.yml").write_text("on: [pull_request, merge_group]\njobs:\n  test:\n    runs-on: x\n")
     whys = settings.readiness(plan, co)
-    assert any("paths" in w for w in whys) and any("several workflows" in w for w in whys)
+    assert any("paths" in w for w in whys) and any("is the name of 2 jobs" in w for w in whys)
 
 
 def test_existing_protection_is_reported(monkeypatch):
@@ -207,56 +211,90 @@ def test_existing_protection_is_reported(monkeypatch):
     assert "old-ci" in lines[0] and "legacy" in lines[1]
 
 
-def _fake_plan(config_root, org):
-    """What the token-free child process would print, for apply tests that mock GitHub."""
-    def plan(args):
-        out = {"(backend)": "github", "(org)": org}
-        for name in args.repo:
-            out[name] = {"kind": "infra", "required": ["test"], "rulesets": [{"name": "qq-main"}, {"name": "qq-x"}]}
-        return out
-    return plan
+def _child_plan(args):
+    """What the token-free child prints, computed in-process (no subprocess in these tests)."""
+    from qqgate import cli
+    cfg, backend, s, plans = cli._plans(args)
+    return json.loads(json.dumps(cli._plan_json(cfg, backend, plans, settings.org_workflows(s, cfg))))
 
 
 @pytest.fixture
 def apply_env(monkeypatch, config_root):
+    from qqgate import cli
     monkeypatch.setenv("QQ_GITHUB_TOKEN", "t")
-    monkeypatch.setattr(settings, "checkout_state", lambda co: settings.CheckoutState("a" * 40, "main", ()))
+    monkeypatch.setattr(settings, "checkout_state",
+                        lambda co, origin=None: settings.CheckoutState("a" * 40, "main", ()))
     monkeypatch.setattr(github, "existing_protection", lambda *a: [])
+    monkeypatch.setattr(cli, "_plan_without_token", _child_plan)
     return monkeypatch
+
+
+JOB = {"toolchains": "ci", "sync": "test", "gate": "presubmit"}
 
 
 def _apply_args(config_root, tmp_path, *repos, extra=()):
     for r in repos:
         if not (tmp_path / r).exists():
-            _checkout(tmp_path, r, "on: [pull_request, merge_group]\njobs:\n  test:\n    runs-on: x\n")
+            _checkout(tmp_path, r, f"on: [pull_request, merge_group]\njobs:\n  {JOB[r]}:\n    runs-on: x\n")
     return (["settings", "apply", "--config", str(config_root), "--checkouts", str(tmp_path)]
             + [a for r in repos for a in ("--repo", r)] + list(extra))
 
 
 def test_org_ruleset_needs_one_enabled(apply_env, config_root, tmp_path, capsys):
-    from qqgate import cli
-    apply_env.setattr(cli, "_plan_without_token", _fake_plan(config_root, [{"ruleset": "qq-drift", "enabled": False}]))
+    off = copy.deepcopy(settings.load_settings("github"))
+    for w in off["org_workflows"]:
+        w["enabled"] = False
+    real = settings.load_settings
+    apply_env.setattr(settings, "load_settings", lambda b, path=None: copy.deepcopy(off) if b == "github" else real(b))
     apply_env.setattr(github, "apply", lambda *a, **k: iter(()))
     assert main(_apply_args(config_root, tmp_path, "sync", extra=["--org"])) == 2
     assert "enabled = false" in capsys.readouterr().err
 
 
 def test_org_ruleset_targets_only_repos_ready_in_this_run(apply_env, config_root, tmp_path, capsys):
-    from qqgate import cli
-    w = {"ruleset": "qq-toolchains-promotion-gate", "enabled": True, "repository": "toolchains",
-         "path": "p.yml", "ref": "refs/heads/main", "targets": ["toolchains", "sync"]}
-    apply_env.setattr(cli, "_plan_without_token", _fake_plan(config_root, [w]))
     apply_env.setattr(github, "apply", lambda *a, **k: iter(()))
     got = []
     apply_env.setattr(github, "apply_org", lambda owner, wf, targets, token, write: got.append(targets) or iter(()))
     assert main(_apply_args(config_root, tmp_path, "sync", extra=["--org"])) == 0
-    assert got == [["sync"]]
+    assert got == [] and "skip     org ruleset qq-toolchains-promotion-gate" in capsys.readouterr().out
+    assert main(_apply_args(config_root, tmp_path, "toolchains", extra=["--org"])) == 0
+    assert got == [["toolchains"]]
+
+
+def test_tampered_child_plan_is_refused(apply_env, config_root, tmp_path, capsys):
+    """Review: the token-holding process rebuilds rulesets from settings and refuses a child that
+    asks for anything else."""
+    from qqgate import cli
+    apply_env.setattr(github, "apply", lambda *a, **k: iter(()))
+    tampers = [
+        lambda d: d["sync"]["rulesets"][0]["bypass_actors"].append({"actor_id": 1}),
+        lambda d: d["sync"]["required"].append("extra"),
+        lambda d: d.update({"evil": {"kind": "infra", "required": [], "rulesets": []}}),
+        lambda d: d["(gate)"].update({"max_minutes": 100000}),
+        lambda d: d.update({"(backend)": "other"}),
+    ]
+    for t in tampers:
+        def plan(args, t=t):
+            d = _child_plan(args)
+            t(d)
+            return d
+        apply_env.setattr(cli, "_plan_without_token", plan)
+        assert main(_apply_args(config_root, tmp_path, "sync")) == 2
+        assert "plan" in capsys.readouterr().err
+
+
+def test_child_env_carries_no_credentials(monkeypatch, tmp_path):
+    from qqgate import cli
+    for k in ("QQ_GITHUB_TOKEN", "GH_TOKEN", "SSH_AUTH_SOCK", "NETRC", "DATABASE_URL", "AWS_SECRET_ACCESS_KEY"):
+        monkeypatch.setenv(k, "x")
+    env = cli._child_env(str(tmp_path))
+    assert not {"QQ_GITHUB_TOKEN", "GH_TOKEN", "SSH_AUTH_SOCK", "NETRC", "DATABASE_URL",
+                "AWS_SECRET_ACCESS_KEY"} & set(env)
+    assert env["HOME"] == str(tmp_path) and "PATH" in env
 
 
 def test_partial_failure_shows_what_is_live(apply_env, config_root, tmp_path, capsys):
     """S3: the second write to sync fails; the first is already live and must be printed."""
-    from qqgate import cli
-    apply_env.setattr(cli, "_plan_without_token", _fake_plan(config_root, []))
     calls = []
 
     def send(method, url, token, body=None):
@@ -269,14 +307,15 @@ def test_partial_failure_shows_what_is_live(apply_env, config_root, tmp_path, ca
     apply_env.setattr(github, "_send", send)
     assert main(_apply_args(config_root, tmp_path, "sync", "gate", extra=["--yes"])) == 2
     out = capsys.readouterr().out
-    assert "quirq-ai/sync: create ruleset qq-main" in out and "qq-x" not in out
+    assert "quirq-ai/sync: create ruleset qq-main" in out and "qq-release-refs-branches" not in out
     assert "FAILED   sync: GitHub API POST: 422" in out and "Not attempted: gate." in out
     assert "already live" in out and "Not attempted:" in out
 
 
 def test_plan_is_computed_without_the_token(apply_env, config_root, tmp_path, capsys):
-    """S8: the process holding the token never runs infra-config's qqcfg."""
+    """S8: the process holding the token never runs infra-config's qqcfg (real child process)."""
     from qqgate import cli, config
+    apply_env.setattr(cli, "_plan_without_token", REAL_PLAN)
 
     def forbidden(*a, **k):
         raise AssertionError("the token-holding process loaded infra-config")
@@ -285,7 +324,6 @@ def test_plan_is_computed_without_the_token(apply_env, config_root, tmp_path, ca
     apply_env.setattr(github, "apply", lambda *a, **k: iter(["quirq-ai/sync: create ruleset qq-main (dry run)"]))
     assert main(_apply_args(config_root, tmp_path, "sync")) == 0
     assert "(dry run)" in capsys.readouterr().out
-    assert cli._secret_env("QQ_GITHUB_TOKEN") and cli._secret_env("GH_TOKEN") and not cli._secret_env("PATH")
 
 
 def test_squash_off_is_reported(monkeypatch):
@@ -303,6 +341,7 @@ def test_squash_off_is_reported(monkeypatch):
     ("  test:\n    if: always() && github.event_name == 'pull_request'\n    runs-on: x\n", "counts it as passing"),
     ("  test:\n    needs: build\n    if: always() && true\n    runs-on: x\n", "without exactly"),
     ("  test:\n    uses: ./.github/workflows/inner.yml\n", "reusable workflow"),
+    ("  test:\n    needs: build\n    if: always()\n    runs-on: x\n", "never reads needs"),
 ])
 def test_audit_s5_holes_are_closed(s, cfg, config_root, tmp_path, job, why):
     plan = plans_by_name(s, cfg, config_root)["sync"]
@@ -312,6 +351,7 @@ def test_audit_s5_holes_are_closed(s, cfg, config_root, tmp_path, job, why):
 
 @pytest.mark.parametrize("pr,why", [
     ("    branches: [development]\n", "never for PRs into main"),
+    ("    branches: ['**', '!main']\n", "never for PRs into main"),
     ("    branches-ignore: [main]\n", "ignores pull_request into main"),
     ("    types: [labeled]\n", "types"),
 ])
@@ -352,3 +392,21 @@ def test_checkout_state(tmp_path):
     _git("checkout", "-q", "-b", "other", cwd=fresh)
     assert "not the default branch main" in settings.checkout_state(fresh).problems[0]
     assert "not a git clone" in settings.checkout_state(tmp_path / "nope").problems[0]
+
+
+def test_merge_group_types_must_include_checks_requested(s, cfg, config_root, tmp_path):
+    plan = plans_by_name(s, cfg, config_root)["sync"]
+    co = _checkout(tmp_path, "x", "on:\n  pull_request:\n  merge_group:\n    types: [destroyed]\njobs:\n"
+                   "  test:\n    runs-on: x\n")
+    assert any("checks_requested" in w for w in settings.readiness(plan, co))
+
+
+def test_checkout_must_come_from_the_real_repo(tmp_path):
+    origin = tmp_path / "origin.git"
+    _git("init", "-q", "--bare", "-b", "main", str(origin))
+    work = tmp_path / "work"
+    _git("clone", "-q", str(origin), str(work))
+    _git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "1", cwd=work)
+    _git("push", "-q", "origin", "HEAD:main", cwd=work)
+    st = settings.checkout_state(work, "https://github.com/quirq-ai/work")
+    assert "not https://github.com/quirq-ai/work" in st.problems[0]

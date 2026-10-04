@@ -37,9 +37,14 @@ What the run does and does not do:
   repo is not ready, even after writing the ready ones, so re-run it as more repos become ready
   (re-clone `.qq/repos` first, as above).
 - Every request goes to `https://api.github.com`. A redirect is refused rather than followed, so
-  the token cannot reach another host.
-- The plan is computed in a child process that has no token in its environment. Only that child
-  runs infra-config's code; the process holding your token only reads the plan's JSON.
+  the token cannot reach another host (a renamed repo, which GitHub answers with a redirect, stops
+  the run with an error instead).
+- The plan is computed in a child process whose environment holds only `PATH`, locale and temp
+  settings, with an empty `HOME`: no token, SSH agent, netrc, `gh` or git config. Only that child
+  runs infra-config's code. It still runs as your OS user, so what makes its code trustworthy is the
+  pinned infra-config commit (apply refuses any other commit, or local changes). The process holding
+  your token takes only product repos' required check names and two gate.toml numbers from the child,
+  checks them, and builds every ruleset itself from `settings/github.toml`.
 - The dry run sends only GETs. It prints a WARNING for classic branch protection or other rulesets
   already on a repo (they stack with ours: remove them, or check their required checks run on
   `merge_group`) and for a repo with squash merging turned off (the merge queue squashes).
@@ -64,18 +69,21 @@ Each ready repo gets:
 - its checkout is not a fresh clone of the default branch's current head, or the repo has no
   commits (qq-main would refuse the push that creates `main`: push a first commit first);
 - it has no required check (its queue would land anything);
-- a required check can skip or never report: a job-level `if:` other than exactly `always()`
-  (unless listed in `allow_conditional` with a reason), `needs:` without exactly `always()`, a matrix
-  job, a job that calls a reusable workflow, a path-filtered workflow, a `pull_request` branch or
-  type filter that leaves out PRs into the default branch, or a name used by jobs in two workflows.
+- its checkout was cloned from anywhere but `https://github.com/quirq-ai/<repo>`;
+- a required check can skip, pass without checking, or never report: a job-level `if:` other than
+  exactly `always()` (unless listed in `allow_conditional` with a reason), `needs:` without exactly
+  `always()`, an `always()` job after `needs:` that never reads `needs.<job>.result`, a matrix job, a
+  job that calls a reusable workflow, a path-filtered workflow, a `pull_request` branch (including
+  `!` patterns) or type filter that leaves out PRs into the default branch, `merge_group` types
+  without `checks_requested`, or a name used by two jobs.
 
-What blocks which repo today (from `settings verify`, 2026-10-04):
+What blocks which repo today (from `settings verify` on fresh clones, 2026-10-04 13:45 UTC):
 
-- xo-space: merge the generated workflows (xo-space #211) and #212 (`merge_group` on `tests.yml`,
-  whose `tests` check stays required until V0-ONB-01 retires it).
-- innernet: merge the generated workflows (innernet #37, re-delivered from current infra-config).
+- xo-space: xo-space #212 (`merge_group` on `tests.yml`, whose `tests` check stays required until
+  V0-ONB-01 retires it).
 - installer: no commits yet.
-- Every other repo: ready.
+- Every other repo: ready. `verify` prints each repo's commit, so a repo that moves between your
+  clone and the run shows as not ready; clone again and re-run.
 
 ## Org rulesets (optional, separate, needs `admin:org`)
 

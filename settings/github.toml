@@ -110,8 +110,9 @@ checks = ["ci"]                      # aggregates unit and promotions
 # promotion-gate is enforced by the qq-toolchains-promotion-gate org ruleset above, not listed here:
 # it runs on pull_request_target, and a same-named job in a PR could satisfy a status check.
 code_owner_review = true             # CODEOWNERS: .github/, tools/, toolchains/, promoted.toml
-# One PR per merge group: the queue runs the merge result's promotion-gate.yml, so a group holding a
-# gate change and a promotion would judge the promotion by the changed gate.
+# One PR per merge group, so a gate change lands on main (where the org ruleset runs
+# promotion-gate.yml from) before any promotion is judged, and toolchains' own merge_group run of the
+# merge result's copy never mixes a gate change with a promotion.
 queue_group_size = 1
 
 [[repo]]
