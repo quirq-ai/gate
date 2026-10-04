@@ -122,3 +122,15 @@ repo = "release"
 path = "tools/rollback_drill.py"
 term = "python"
 why = "The rollback drill's usage line names how qq's own script is started; it is not shipped logic."
+
+[[allow]]
+repo = "depot"
+path = "src/qqdepot/store.py"
+term = "cpython"
+why = "Docstring: why archive containment does not rely on the tarfile filter of the interpreter qq runs on."
+
+[[allow]]
+repo = "test-pipelines"
+path = "tools/bin/qqresults"
+term = "*"
+why = "Launcher for qq's own qqresults from source (audit S8): starts qq's interpreter and says why nothing is installed."
