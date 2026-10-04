@@ -7,7 +7,6 @@ core = ["depot", "sync", "gate", "test-pipelines", "gardener", "release"]
 scan = ["src/**", "bin/**", "tools/**"]
 skip = ["**/__pycache__/**", "**/*.egg-info/**", "**/*.md"]
 
-
 # Matched as whole words, ignoring case. TODO(expert): grow these lists as kinds are added.
 [terms]
 language = ["python", "python3", "cpython", "javascript", "typescript", "golang", "rust", "java",
@@ -122,18 +121,6 @@ repo = "release"
 path = "tools/rollback_drill.py"
 term = "python"
 why = "The rollback drill's usage line names how qq's own script is started; it is not shipped logic."
-
-[[allow]]
-repo = "depot"
-path = "src/qqdepot/store.py"
-term = "cpython"
-why = "Docstring: why archive containment does not rely on the tarfile filter of the interpreter qq runs on."
-
-[[allow]]
-repo = "depot"
-path = "src/qqdepot/store.py"
-term = "python"
-why = "Docstring: why the tree digest skips __pycache__, which the interpreter qq runs on writes into its own install."
 
 [[allow]]
 repo = "test-pipelines"
