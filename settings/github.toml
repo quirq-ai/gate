@@ -20,8 +20,8 @@ bypass = []
 [release_refs]
 # lkgr and channels/* are written only by the release executor (V0-REL-01, V0-REL-02).
 ruleset = "qq-release-refs"
-branches = ["lkgr", "channels/**"]
-tags = ["lkgr", "channels/**"]
+branches = ["lkgr", "channels/**/*"]   # `**/*`: GitHub's `**` alone matches one level only
+tags = ["lkgr", "channels/**/*"]
 # TODO(suraj): the release executor's identity (a GitHub App id, ideally the agent bot from the
 # open identity question). Until it exists nobody can create, move or delete these refs.
 bypass_integration_ids = []
@@ -138,10 +138,12 @@ checks = ["validate"]                # qq-drift skips itself here; it is the org
 [[repo]]
 name = "depot"
 kind = "infra"
-# Every tag is trusted by depot's pins: a version-only pin installs tag v<version>, and a git:
-# digest must be on a branch or tag (src/qqdepot/pin.py). Nobody but the release executor (not
-# decided yet, so nobody) may create, move or delete one.
-release_tags = ["**"]
+# Every tag is trusted by depot's pins: a version-only pin (xo-space and innernet `[qq] version`)
+# installs tag v<version>, and a git: digest must be on a branch or tag (src/qqdepot/pin.py). Nobody
+# but the release executor (not decided yet, so nobody, not even an admin) may create, move or
+# delete one, so v0.1.0 cannot be cut until it exists. Branches still count for a git: digest;
+# narrowing that is a depot change.
+release_tags = ["**/*"]              # every tag, nested ones too (`**` alone is one level)
 # `parity` is a matrix; parity-compare aggregates it but needs `if: always()` and a check that every
 # leg succeeded, or a failed leg skips it and GitHub counts the skip as a pass. Asked of depot.
 checks = ["test", "parity-compare"]

@@ -84,23 +84,28 @@ is no less safe.
   GitHub Actions app), no force push, no deletion, and nobody on the bypass list. Together these
   refuse a direct push to `main`. toolchains also requires code-owner review, which takes effect for
   the paths its CODEOWNERS gives owners (none are named yet: ORG-02).
-- `qq-release-refs-branches` and `qq-release-refs-tags`: `lkgr` and `channels/**` cannot be created,
+- `qq-release-refs-branches` and `qq-release-refs-tags`: `lkgr` and `channels/**/*` cannot be created,
   moved or deleted except by the release executor. Its identity is not decided yet, so today nobody
   can write them.
 - `qq-reserved-tags`, in every repo: nobody may create, move or delete a tag named `main` or like
   any repo's state branch (`ledger`, `perf-data`, `release-state`, `results`, `tree-status`). A tag
   named `main` satisfies a workflow's `github.ref_name == 'main'` test, and a tag wins over a branch
-  of its name on a short-name `git fetch`. `lkgr` and `channels/**` tags are already locked to the
+  of its name on a short-name `git fetch`. `lkgr` and `channels/**/*` tags are already locked to the
   release executor by `qq-release-refs-tags`.
 - `qq-state-branches`, where `state_branches` names some (gardener `ledger` and `tree-status`,
   release `release-state`, perf `perf-data`, test-pipelines `results`): those branches cannot be deleted or force-pushed.
   Their bots still push to them normally. Later, once the release executor exists, `release-state`
   should also be writable only by it (TODO(suraj) in `settings/github.toml`).
-- `qq-release-tags`, in depot: no tag may be created, moved or deleted except by the release
-  executor (not decided yet, so by nobody). depot's pins trust its tags: a version-only pin
-  installs tag `v<version>`, and a `git:` digest must be on a branch or tag. No other repo's pins
-  trust tags (other qq repos pin each other by commit). xo-space's `v*` tags start its container
-  publish; they are not locked, because suraj cuts them by hand (TODO(suraj): who may create them).
+- `qq-release-tags`, in depot: no tag (`**/*`, nested ones too) may be created, moved or deleted
+  except by the release executor (not decided yet, so by nobody, admins included). depot's pins
+  trust its tags: a version-only pin, such as xo-space's and innernet's `[qq] version = "0.1.0"`,
+  installs tag `v<version>`, and a `git:` digest must be on a branch or tag. So depot `v0.1.0`
+  cannot be cut, by hand or otherwise, until the release executor exists (neither product's CI
+  installs qq yet). This does not close the branch half: anyone with write access can still push
+  a branch at any commit, and depot counts it for a `git:` digest; narrowing that to tags is a
+  depot change. Other qq repos pin each other by commit and toolchains checks digests, so no other
+  pins trust tags. xo-space's `v*` tags start its container publish; they are not locked, because
+  suraj cuts them by hand (TODO(suraj): who may create them).
 - Not in this apply: `qq-dependabot-branches` (only Dependabot may push to or force-push
   `dependabot/**` in xo-space and innernet). It is built only for repos with
   `dependabot_branches = true`, which is false for both today. Its bypass names the Dependabot app
@@ -178,7 +183,7 @@ command again; it sets the ruleset back to active.
 - Squash merges for every repo: confirmed 2026-10-04.
 - Whether admins get a break-glass bypass on `main`. The default is none. An org owner can still
   disable or edit a ruleset in Settings > Rules (the next run reports that as `differs`).
-- The release executor's identity (a GitHub App id) for `lkgr`, `channels/**` and `release-state`.
+- The release executor's identity (a GitHub App id) for `lkgr`, `channels/**/*` and `release-state`.
 - Approvals: `required_approvals = 0` today, because every PR here comes from an agent account and
   you cannot approve your own PRs. Code-owner review on tests and `infra/` is V0-GAT-03.
 

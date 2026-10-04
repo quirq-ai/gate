@@ -146,3 +146,21 @@ repo = "test-pipelines"
 path = "src/qqresults/failures.py"
 term = "java"
 why = "Comment listing ordinary failure texts (a heap OOM) the security classifier must not match; not a target."
+
+[[allow]]
+repo = "depot"
+path = "src/qqdepot/locks/pypi.in"
+term = "*"
+why = "Hash lock input for qq's own repos' PyPI dependencies (depot #15); it pins qq's tooling, not a target's build."
+
+[[allow]]
+repo = "depot"
+path = "src/qqdepot/locks/pypi.txt"
+term = "*"
+why = "Generated hash lock of qq's own PyPI dependencies (depot #15); its header names the tool that wrote it."
+
+[[allow]]
+repo = "test-pipelines"
+path = "src/qqresults/retry.py"
+term = "pytest"
+why = "Docstring example of how a JUnit reporter records an exception in a test body; the logic reads JUnit only."
