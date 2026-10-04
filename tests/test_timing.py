@@ -39,6 +39,26 @@ def test_newest_queue_entry_wins(monkeypatch):
     assert "/repos/quirq-ai/xo-space/issues/212/timeline" in seen[0]
 
 
+def test_entry_after_the_group_was_built_is_not_this_runs(monkeypatch):
+    # An old group's run still going after the PR was removed and re-added (EVENT built at 12:05).
+    timeline = [{"event": "added_to_merge_queue", "created_at": "2026-10-04T12:00:00Z"},
+                {"event": "removed_from_merge_queue", "created_at": "2026-10-04T12:10:00Z"},
+                {"event": "added_to_merge_queue", "created_at": "2026-10-04T12:20:00Z"}]
+    monkeypatch.setattr(github, "_get", lambda url, token: timeline)
+    assert github.queued_at(EVENT, "quirq-ai/xo-space", token="").at == "2026-10-04T12:00:00Z"
+
+
+def test_cli_does_not_export_an_approximate_time(monkeypatch, tmp_path):
+    def down(url, token):
+        raise GateError("unreachable")
+    monkeypatch.setattr(github, "_get", down)
+    event, env = tmp_path / "event.json", tmp_path / "env"
+    event.write_text(json.dumps(EVENT))
+    monkeypatch.setenv("GITHUB_ENV", str(env))
+    assert main(["queued-at", "--event", str(event), "--repository", "quirq-ai/xo-space"]) == 1
+    assert not env.exists()
+
+
 def test_falls_back_to_group_commit_time_marked_inexact(monkeypatch):
     def down(url, token):
         raise GateError("unreachable")

@@ -14,7 +14,8 @@
         Fail if a core repo's shipped code names a language, build tool or deploy target.
     qqgate queued-at [--event FILE] [--repository OWNER/NAME] [--json]   (V0-GAT-04)
         In a merge_group job: when the change entered the queue, as RFC 3339 UTC. Inside GitHub
-        Actions it also exports QQ_QUEUED_AT to GITHUB_ENV for the result sink.
+        Actions it also exports QQ_QUEUED_AT to GITHUB_ENV for the result sink. Exit 1, nothing
+        exported, when only an approximate time is available.
 Exit codes: 0 ok or pass, 1 refused or not ready, 2 the gate could not decide.
 """
 from __future__ import annotations
@@ -159,8 +160,9 @@ def cmd_queued_at(args) -> int:
         raise GateError(f"event {event_path}: {e}") from None
     q = backends.load(args.backend).queued_at(event, repository)
     print(json.dumps({"queued_at": q.at, "source": q.source, "exact": q.exact}) if args.json else q.at)
-    if not q.exact:
-        print(f"qqgate: queued_at is approximate ({q.source})", file=sys.stderr)
+    if not q.exact:  # an approximate time would skew p50/p90 unseen, so the sink gets none
+        print(f"qqgate: queued_at is approximate ({q.source}); not exported", file=sys.stderr)
+        return 1
     env_file = os.environ.get("GITHUB_ENV")
     if env_file and not args.no_export:
         with open(env_file, "a") as f:
