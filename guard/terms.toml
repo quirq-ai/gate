@@ -110,3 +110,9 @@ repo = "test-pipelines"
 path = "tools/planted_demo.sh"
 term = "*"
 why = "V0-TST-03's done-when demo: builds a throwaway repo with a real test runner. CI-only, not shipped."
+
+[[allow]]
+repo = "release"
+path = "tools/lkgr_demo.py"
+term = "python"
+why = "The done-when demo's usage line names how qq's own script is started; it is not shipped logic."
