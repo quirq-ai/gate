@@ -84,8 +84,7 @@ Each ready repo gets:
 
 What blocks which repo today (from `settings verify` on fresh clones, 2026-10-04 13:55 UTC):
 
-- installer: no commits yet.
-- Every other repo: ready. `verify` prints each repo's commit, so a repo that moves between your
+- Every repo: ready. `verify` prints each repo's commit, so a repo that moves between your
   clone and the run shows as not ready; clone again and re-run.
 
 ## Org rulesets (optional, separate, needs `admin:org`)

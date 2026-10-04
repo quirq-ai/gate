@@ -1,5 +1,6 @@
 import argparse
 import copy
+import dataclasses
 import json
 import subprocess
 
@@ -56,8 +57,7 @@ def test_release_refs_are_locked_to_the_release_executor(s, cfg, config_root):
 
 def test_repo_without_checks_is_not_ready(s, cfg, config_root, tmp_path):
     """S2: a queue with no required check would land a red PR."""
-    plan = plans_by_name(s, cfg, config_root)["installer"]
-    assert plan.checks == ()
+    plan = dataclasses.replace(plans_by_name(s, cfg, config_root)["installer"], checks=())
     co = _checkout(tmp_path, "i", "on: [pull_request, merge_group]\njobs:\n  presubmit:\n    runs-on: x\n")
     why = settings.readiness(plan, co)
     assert "no required checks" in why[0] and "jobs on both events: presubmit" in why[0]
@@ -68,6 +68,7 @@ def test_infra_repos_with_a_presubmit_list_it(s, cfg, config_root):
     assert plans["gardener"].checks == ("presubmit",)
     assert plans["rollers"].checks == ("test",)
     assert plans["release"].checks == ("presubmit",)
+    assert plans["installer"].checks == ("presubmit",)
 
 
 def test_code_owner_review_is_per_repo(s, cfg, config_root):
