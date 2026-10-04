@@ -116,3 +116,9 @@ repo = "release"
 path = "tools/lkgr_demo.py"
 term = "python"
 why = "The done-when demo's usage line names how qq's own script is started; it is not shipped logic."
+
+[[allow]]
+repo = "release"
+path = "tools/rollback_drill.py"
+term = "python"
+why = "The rollback drill's usage line names how qq's own script is started; it is not shipped logic."
