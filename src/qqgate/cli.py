@@ -8,8 +8,10 @@
         Pass or refuse one commit. Exit 0 on pass, 1 when refused.
     qqgate settings plan|verify|apply --config DIR [...]   (V0-ORG-03)
         plan: every repo's rulesets as JSON. verify --checkouts DIR: which repos are safe to apply
-        (each required check runs on pull_request and merge_group there). apply: create or update the
-        rulesets of ready repos; dry run unless --yes. Needs an admin token in QQ_GITHUB_TOKEN.
+        (each checkout is its default branch's current head, and each required check runs on
+        pull_request and merge_group there). apply: create or update the rulesets of ready repos; dry
+        run unless --yes. Needs an admin token in QQ_GITHUB_TOKEN; the plan is computed in a child
+        process without it. --org also applies the enabled org rulesets (admin:org).
     qqgate guard --repo NAME [ROOT]   (V0-GAT-02)
         Fail if a core repo's shipped code names a language, build tool or deploy target.
     qqgate queued-at [--event FILE] [--repository OWNER/NAME] [--json]   (V0-GAT-04)
@@ -23,10 +25,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
-import os
 
 from qqgate import __version__, backends, config, guard, required, settings, verdict
 from qqgate.errors import GateError, NotOnboarded
@@ -94,54 +98,147 @@ def _plans(args):
     return cfg, backend, s, plans
 
 
+def _plan_json(backend: str, plans, org: list[dict]) -> dict:
+    out = {"(backend)": backend}
+    out.update({p.name: {"kind": p.kind, "required": list(p.checks), "rulesets": list(p.rulesets)} for p in plans})
+    out["(org)"] = org
+    return out
+
+
+def _secret_env(name: str) -> bool:
+    n = name.upper()
+    return (any(w in n for w in ("TOKEN", "SECRET", "PASSWORD", "KEY", "CREDENTIAL"))
+            or n.startswith(("GH_", "GITHUB_")))
+
+
+def _plan_without_token(args) -> dict:
+    """Run `settings plan` in a child process with no credentials in its environment (audit S8).
+    Planning executes infra-config's tools/qqcfg.py; the process holding the admin token never does."""
+    cmd = [sys.executable, "-c", "import sys; from qqgate.cli import main; sys.exit(main(sys.argv[1:]))",
+           "settings", "plan", "--config", str(args.config)]
+    for r in args.repo or ():
+        cmd += ["--repo", r]
+    if args.no_validate:
+        cmd.append("--no-validate")
+    env = {k: v for k, v in os.environ.items() if not _secret_env(k)}
+    try:
+        r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=600)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise GateError(f"computing the plan failed: {e}") from None
+    if r.returncode != 0:
+        raise GateError(f"computing the plan failed (exit {r.returncode}): {r.stderr.strip()}")
+    try:
+        return json.loads(r.stdout)
+    except json.JSONDecodeError as e:
+        raise GateError(f"computing the plan printed something other than JSON: {e}") from None
+
+
+def _config_at_pin(config_root: Path) -> str | None:
+    """None when the infra-config checkout is at pins.toml's commit, else why not."""
+    pins = Path(__file__).resolve().parents[2] / "pins.toml"
+    want = tomllib.loads(pins.read_text())["infra-config"]["commit"]
+    head = settings._git(config_root, "rev-parse", "HEAD")
+    if head != want:
+        return f"--config {config_root} is at {head or 'no commit'}, not pins.toml's infra-config {want}"
+    return None
+
+
 def _ready(plans, checkouts, s):
+    """Readiness per repo, from a checkout that must be the remote default branch's current head."""
     allow = {r["name"]: tuple(r.get("allow_conditional", ())) for r in s["repo"]}
-    return {p.name: settings.readiness(p, Path(checkouts) / p.name, allow.get(p.name, ())) for p in plans}
+    out, heads = {}, {}
+    for p in plans:
+        co = Path(checkouts) / p.name
+        st = settings.checkout_state(co)
+        heads[p.name] = st.head
+        out[p.name] = list(st.problems) or settings.readiness(p, co, allow.get(p.name, ()), st.branch)
+    return out, heads
+
+
+def _print_ready(plans, ready, heads):
+    for p in plans:
+        why = ready[p.name]
+        at = (heads[p.name] or "no commits")[:12]
+        print(f"{'ready    ' if not why else 'NOT READY'} {p.name:<15} at {at:<12} "
+              f"required: {', '.join(p.checks) or '(none)'}", flush=True)
+        for w in why:
+            print(f"            {w}", flush=True)
 
 
 def cmd_settings(args) -> int:
-    cfg, backend, s, plans = _plans(args)
-    mod = backends.load(backend)
     if args.action == "plan":
-        out = {p.name: {"kind": p.kind, "required": list(p.checks), "rulesets": list(p.rulesets)} for p in plans}
-        if not args.repo:
-            out["(org)"] = {"rulesets": [mod.org_ruleset(s, cfg, repository_id=0)]}  # id looked up at apply
-        print(json.dumps(out, indent=2))
+        cfg, backend, s, plans = _plans(args)
+        print(json.dumps(_plan_json(backend, plans, settings.org_workflows(s, cfg)), indent=2))
         return 0
     if not args.checkouts:
         raise GateError(f"settings {args.action} needs --checkouts DIR with each repo's default branch")
-    ready = _ready(plans, args.checkouts, s)
-    for p in plans:
-        why = ready[p.name]
-        print(f"{'ready    ' if not why else 'NOT READY'} {p.name:<15} required: {', '.join(p.checks) or '(none yet)'}")
-        for w in why:
-            print(f"            {w}")
     if args.action == "verify":
+        cfg, backend, s, plans = _plans(args)
+        stale = _config_at_pin(Path(args.config))
+        if stale:
+            print(f"WARNING  {stale}", flush=True)
+        ready, heads = _ready(plans, args.checkouts, s)
+        _print_ready(plans, ready, heads)
         return 0 if all(not w for w in ready.values()) else 1
+    return _apply(args)
+
+
+def _apply(args) -> int:
     token = os.environ.get("QQ_GITHUB_TOKEN")
     if not token:
         raise GateError("apply needs an admin token in QQ_GITHUB_TOKEN (for example: QQ_GITHUB_TOKEN=$(gh auth token))")
-    for p in plans:
-        if ready[p.name]:
-            print(f"skip     {p.name}: not ready")
-            continue
-        for line in mod.existing_protection(s["org"]["owner"], p.name,
-                                            {rs["name"] for rs in p.rulesets} | {s["org_workflows"]["ruleset"]}, token):
-            print(f"WARNING  {p.name}: {line}")
-        for line in mod.apply(s["org"]["owner"], p.name, list(p.rulesets), token, write=args.yes):
-            print(line)
-    # Last, and on its own: an org ruleset needs admin:org and a plan that offers required workflows.
-    if args.org and not s["org_workflows"].get("enabled", False):
-        print("qqgate: org ruleset not applied: settings [org_workflows] enabled = false", file=sys.stderr)
-        return 2
-    if args.org:
+    stale = _config_at_pin(Path(args.config))
+    if stale:
+        raise GateError(f"{stale}; check out the pinned commit (docs/apply-settings.md)")
+    data = _plan_without_token(args)
+    backend = data.pop("(backend)")
+    org = data.pop("(org)")
+    s = settings.load_settings(backend)
+    mod = backends.load(backend)
+    plans = [settings.RepoPlan(n, d["kind"], tuple(d["required"]), tuple(d["rulesets"])) for n, d in data.items()]
+    ready, heads = _ready(plans, args.checkouts, s)
+    _print_ready(plans, ready, heads)
+    owner = s["org"]["owner"]
+    ours = {rs["name"] for p in plans for rs in p.rulesets} | {w["ruleset"] for w in org}
+    todo = [p for p in plans if not ready[p.name]]
+    for i, p in enumerate(todo):
         try:
-            for line in mod.apply_org(s["org"]["owner"], s, cfg, token, write=args.yes):
-                print(line)
+            for line in mod.existing_protection(owner, p.name, ours, token):
+                print(f"WARNING  {p.name}: {line}", flush=True)
+            for line in mod.apply(owner, p.name, list(p.rulesets), token, write=args.yes):
+                print(line, flush=True)
         except GateError as e:
-            print(f"qqgate: org ruleset not applied: {e}", file=sys.stderr)
+            return _stopped(p.name, e, [q.name for q in todo[i + 1:]], args.yes)
+    not_ready = sum(1 for w in ready.values() if w)
+    if args.org:
+        enabled = [w for w in org if w.get("enabled", False)]
+        if not enabled:
+            print("qqgate: no org ruleset applied: every [[org_workflows]] has enabled = false", file=sys.stderr)
             return 2
-    return 0 if all(not w for w in ready.values()) else 1
+        in_run = {p.name for p in plans if not ready[p.name]}
+        for i, w in enumerate(enabled):
+            targets = [t for t in w["targets"] if t in in_run]
+            if not targets:
+                print(f"skip     org ruleset {w['ruleset']}: none of {', '.join(w['targets'])} is ready in this run",
+                      flush=True)
+                continue
+            try:
+                for line in mod.apply_org(owner, w, targets, token, write=args.yes):
+                    print(line, flush=True)
+            except GateError as e:
+                return _stopped(f"org ruleset {w['ruleset']}", e, [x["ruleset"] for x in enabled[i + 1:]], args.yes)
+    print(f"done     {len(todo)} repo(s) {'written' if args.yes else 'checked (dry run)'}, {not_ready} not ready",
+          flush=True)
+    return 1 if not_ready else 0
+
+
+def _stopped(what: str, e: GateError, rest: list[str], wrote: bool) -> int:
+    print(f"FAILED   {what}: {e}", flush=True)
+    if wrote:
+        print("         Every line above without '(dry run)' is already live on GitHub. Not attempted: "
+              f"{', '.join(rest) or 'nothing'}. Re-running is safe: rulesets are created or updated by name.",
+              flush=True)
+    return 2
 
 
 def cmd_guard(args) -> int:
@@ -201,7 +298,7 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--repo", action="append", help="limit to these repos (repeatable)")
     st.add_argument("--checkouts", help="directory holding a default-branch checkout of each repo, by name")
     st.add_argument("--yes", action="store_true", help="apply: really write (default is a dry run)")
-    st.add_argument("--org", action="store_true", help="apply: also the org ruleset (qq-drift workflow), once settings enable it")
+    st.add_argument("--org", action="store_true", help="apply: also the enabled org rulesets (needs an admin:org token; not needed for repo rulesets)")
     st.add_argument("--no-validate", action="store_true", help="skip qqcfg validate (tests only)")
     gd = sub.add_parser("guard", help="agnosticism guard for a core repo (V0-GAT-02)")
     gd.set_defaults(fn=cmd_guard)

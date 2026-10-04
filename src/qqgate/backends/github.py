@@ -8,8 +8,10 @@ green check with the same name.
 That does not stop a PR from adding its own workflow with a job of the same name: same app, same
 name. So `observe` also requires each check to come from the workflow file infra-config generates
 for it, and treats a same-named check from any other workflow as a spoof that fails the verdict.
-TODO(expert): GitHub's ruleset rule has the same gap; V0-GAT-03 puts `.github/**` behind owner
-review, which narrows it, and the merge queue runs workflows from the merge result.
+GitHub's ruleset rule has the same gap (audit S6): it matches name and app only. What closes it is an
+org "require workflows" ruleset, which runs the workflow from another repo's main (`org_ruleset`;
+qq-drift for product repos, promotion-gate for toolchains), plus owner review on `.github/**`
+(V0-GAT-03).
 """
 from __future__ import annotations
 
@@ -24,6 +26,27 @@ import yaml
 
 from qqgate.errors import GateError
 from qqgate.required import RequiredSet
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """The token must only ever reach api.github.com: a redirect is an error, never followed."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # urllib then raises HTTPError for the 3xx
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def _request(url: str, token: str | None, method: str = "GET", data: bytes | None = None) -> urllib.request.Request:
+    if not url.startswith(API + "/"):
+        raise GateError(f"refusing to send a request outside {API}: {url}")
+    req = urllib.request.Request(url, data=data, method=method, headers={
+        "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json"})
+    if token:
+        req.add_unredirected_header("Authorization", f"Bearer {token}")
+    return req
+
 
 GITHUB_ACTIONS_APP_ID = 15368  # the GitHub Actions app; checks from any other app do not count
 API = "https://api.github.com"
@@ -99,7 +122,7 @@ def _status_checks_rule(names) -> dict:
     }
 
 
-def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...]) -> list[dict]:
+def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_review: bool = False) -> list[dict]:
     """V0-ORG-03: the repository rulesets (REST: POST /repos/{o}/{r}/rulesets) for one repo."""
     main, refs = settings["main"], settings["release_refs"]
     method = main["merge_method"].upper()
@@ -114,7 +137,8 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...]) -> list[dict]:
         {"type": "pull_request", "parameters": {
             "required_approving_review_count": main["required_approvals"],
             "dismiss_stale_reviews_on_push": True,
-            "require_code_owner_review": False,
+            # Per repo (settings code_owner_review); it only bites for paths CODEOWNERS gives owners.
+            "require_code_owner_review": code_owner_review,
             "require_last_push_approval": False,
             "required_review_thread_resolution": False,
             "allowed_merge_methods": [main["merge_method"]],
@@ -147,27 +171,27 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...]) -> list[dict]:
     ]
 
 
-def org_ruleset(settings: dict, cfg: dict, repository_id: int) -> dict:
-    """The org ruleset that runs infra-config's drift workflow in every product repo (V0-CFG-02).
-    `repository_id` is infra-config's numeric GitHub id, looked up at apply time."""
-    w = settings["org_workflows"]
+def org_ruleset(workflow: dict, targets: list[str], repository_id: int) -> dict:
+    """An org ruleset that runs `workflow["path"]` from `workflow["repository"]` at `workflow["ref"]`
+    on every PR and queue entry into the default branch of `targets`. `repository_id` is the source
+    repo's numeric GitHub id, looked up at apply time."""
     return {
-        "name": w["ruleset"], "target": "branch", "enforcement": "active", "bypass_actors": [],
+        "name": workflow["ruleset"], "target": "branch", "enforcement": "active", "bypass_actors": [],
         "conditions": {
             "ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []},
-            "repository_name": {"include": sorted(r["name"] for r in cfg["repos"]["repo"]),
-                                "exclude": [], "protected": True},
+            "repository_name": {"include": sorted(targets), "exclude": [], "protected": True},
         },
         "rules": [{"type": "workflows", "parameters": {
             "do_not_enforce_on_create": False,
-            "workflows": [{"path": w["path"], "repository_id": repository_id, "ref": w["ref"]}],
+            "workflows": [{"path": workflow["path"], "repository_id": repository_id, "ref": workflow["ref"]}],
         }}],
     }
 
 
-def apply_org(owner: str, settings: dict, cfg: dict, token: str, write: bool) -> list[str]:
-    repo_id = _send("GET", f"{API}/repos/{owner}/{settings['org_workflows']['repository']}", token)["id"]
-    rs = org_ruleset(settings, cfg, repo_id)
+def apply_org(owner: str, workflow: dict, targets: list[str], token: str, write: bool):
+    """Create or update one org ruleset by name. Yields a line after each write."""
+    repo_id = _send("GET", f"{API}/repos/{owner}/{workflow['repository']}", token)["id"]
+    rs = org_ruleset(workflow, targets, repo_id)
     base = f"{API}/orgs/{owner}/rulesets"
     existing = {r["name"]: r["id"] for r in _send("GET", f"{base}?per_page=100", token)}
     if rs["name"] in existing:
@@ -176,20 +200,23 @@ def apply_org(owner: str, settings: dict, cfg: dict, token: str, write: bool) ->
         action, method, url = "create", "POST", base
     if write:
         _send(method, url, token, rs)
-    return [f"{owner} (org): {action} ruleset {rs['name']}" + ("" if write else " (dry run)")]
+    yield (f"{owner} (org): {action} ruleset {rs['name']} for {', '.join(targets)}"
+           + ("" if write else " (dry run)"))
 
 
 def _send(method: str, url: str, token: str, body: dict | None = None):
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, method=method, headers={
-        "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
-        "Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+    req = _request(url, token, method, data)
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with _OPENER.open(req, timeout=30) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
         detail = e.read().decode(errors="replace")[:500]
         raise GateError(f"GitHub API {method} {url}: {e.code} {e.reason}: {detail}") from None
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise GateError(f"GitHub API {method} {url}: unreachable: {e}") from None
+    except json.JSONDecodeError as e:
+        raise GateError(f"GitHub API {method} {url}: not JSON: {e}") from None
 
 
 def existing_protection(owner: str, repo: str, ours: set[str], token: str) -> list[str]:
@@ -198,6 +225,9 @@ def existing_protection(owner: str, repo: str, ours: set[str], token: str) -> li
     out = []
     info = _send("GET", f"{API}/repos/{owner}/{repo}", token)
     branch = info.get("default_branch", "main")
+    if info.get("allow_squash_merge") is False:
+        out.append("squash merging is turned off for this repo, and the merge queue squashes; turn it on "
+                   "in Settings > General > Pull Requests")
     try:
         prot = _send("GET", f"{API}/repos/{owner}/{repo}/branches/{branch}/protection", token)
         checks = ((prot.get("required_status_checks") or {}).get("contexts")) or []
@@ -213,11 +243,11 @@ def existing_protection(owner: str, repo: str, ours: set[str], token: str) -> li
     return out
 
 
-def apply(owner: str, repo: str, wanted: list[dict], token: str, write: bool) -> list[str]:
-    """Create or update each wanted ruleset by name; never deletes rulesets it did not create."""
+def apply(owner: str, repo: str, wanted: list[dict], token: str, write: bool):
+    """Create or update each wanted ruleset by name; never deletes rulesets it did not create.
+    Yields a line as soon as each write succeeds, so a failure part way shows what is already live."""
     base = f"{API}/repos/{owner}/{repo}/rulesets"
     existing = {r["name"]: r["id"] for r in _send("GET", f"{base}?includes_parents=false&per_page=100", token)}
-    done = []
     for rs in wanted:
         if rs["name"] in existing:
             action, method, url = "update", "PUT", f"{base}/{existing[rs['name']]}"
@@ -225,8 +255,7 @@ def apply(owner: str, repo: str, wanted: list[dict], token: str, write: bool) ->
             action, method, url = "create", "POST", base
         if write:
             _send(method, url, token, rs)
-        done.append(f"{owner}/{repo}: {action} ruleset {rs['name']}" + ("" if write else " (dry run)"))
-    return done
+        yield f"{owner}/{repo}: {action} ruleset {rs['name']}" + ("" if write else " (dry run)")
 
 
 def owner_repo(source: str) -> str:
@@ -238,12 +267,9 @@ def owner_repo(source: str) -> str:
 
 
 def _get(url: str, token: str | None) -> dict:
-    req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
-                                               "X-GitHub-Api-Version": "2022-11-28"})
-    if token:
-        req.add_header("Authorization", f"Bearer {token}")
+    req = _request(url, token)
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with _OPENER.open(req, timeout=30) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
         raise GateError(f"GitHub API {e.code} for {url}: {e.reason}") from None

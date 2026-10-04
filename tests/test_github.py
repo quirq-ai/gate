@@ -79,9 +79,54 @@ def test_unreachable_api_is_a_gate_error(monkeypatch):
 
     def boom(*a, **k):
         raise urllib.error.URLError("no network")
-    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    monkeypatch.setattr(github._OPENER, "open", boom)
     with pytest.raises(GateError, match="unreachable"):
         github._get("https://api.github.com/x", None)
+    with pytest.raises(GateError, match="unreachable"):
+        github._send("GET", "https://api.github.com/x", "t")
+
+
+def test_token_never_follows_a_redirect(monkeypatch):
+    """S4: a redirect is refused, so the token cannot reach another host."""
+    import http.server
+    import threading
+
+    import pytest
+
+    from qqgate.errors import GateError
+
+    seen = []
+
+    class Other(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append(self.headers.get("Authorization"))
+            self.send_response(200); self.end_headers(); self.wfile.write(b"{}")
+
+        def log_message(self, *a):
+            pass
+
+    other = http.server.HTTPServer(("127.0.0.1", 0), Other)
+
+    class Redirect(Other):
+        def do_GET(self):
+            self.send_response(301)
+            self.send_header("Location", f"http://127.0.0.1:{other.server_port}/x")
+            self.end_headers()
+
+    first = http.server.HTTPServer(("127.0.0.1", 0), Redirect)
+    for srv in (first, other):
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setattr(github, "API", f"http://127.0.0.1:{first.server_port}")
+        for call in (lambda: github._get(f"{github.API}/x", "secret"),
+                     lambda: github._send("GET", f"{github.API}/x", "secret")):
+            with pytest.raises(GateError, match="301"):
+                call()
+        assert seen == []
+        with pytest.raises(GateError, match="outside"):
+            github._get("https://example.com/x", "secret")
+    finally:
+        first.shutdown(); other.shutdown()
 
 
 def test_skippable_job_is_caught(cfg, config_root, tmp_path):
