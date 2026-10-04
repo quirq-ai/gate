@@ -159,10 +159,10 @@ def cmd_queued_at(args) -> int:
     except (OSError, json.JSONDecodeError) as e:
         raise GateError(f"event {event_path}: {e}") from None
     q = backends.load(args.backend).queued_at(event, repository)
-    print(json.dumps({"queued_at": q.at, "source": q.source, "exact": q.exact}) if args.json else q.at)
     if not q.exact:  # an approximate time would skew p50/p90 unseen, so the sink gets none
-        print(f"qqgate: queued_at is approximate ({q.source}); not exported", file=sys.stderr)
+        print(f"qqgate: only an approximate queue time ({q.at}, {q.source}); not exported", file=sys.stderr)
         return 1
+    print(json.dumps({"queued_at": q.at, "source": q.source, "exact": q.exact}) if args.json else q.at)
     env_file = os.environ.get("GITHUB_ENV")
     if env_file and not args.no_export:
         with open(env_file, "a") as f:

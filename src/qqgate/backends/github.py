@@ -319,7 +319,8 @@ def queued_at(event: dict, repository: str, token: str | None = None):
 
     Exact: the newest `added_to_merge_queue` event on the PR's timeline at or before the group was
     built (a PR removed and re-added is timed from the entry this group came from, even when an old
-    group's run is still going after a later re-add). Fallback, marked inexact: the merge-group
+    group's run is still going after a later re-add). This assumes head_commit.timestamp is when the
+    queue made the group commit, which holds for squash and merge queues (settings use squash). Fallback, marked inexact: the merge-group
     commit's timestamp, which is when the queue built the group, so it leaves out waiting before it.
     """
     from qqgate import timing
@@ -338,7 +339,8 @@ def queued_at(event: dict, repository: str, token: str | None = None):
         if added:
             built = timing.rfc3339(ts) if ts else None
             before = [a for a in added if built is None or a <= built]
-            return timing.QueuedAt((before or added)[-1], "timeline:added_to_merge_queue", True)
+            if before:  # none at or before the build: this group's entry is unknown, so fall back
+                return timing.QueuedAt(before[-1], "timeline:added_to_merge_queue", True)
     except GateError:
         pass  # fall back below; the fallback is marked inexact
     if not ts:

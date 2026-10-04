@@ -48,7 +48,23 @@ def test_entry_after_the_group_was_built_is_not_this_runs(monkeypatch):
     assert github.queued_at(EVENT, "quirq-ai/xo-space", token="").at == "2026-10-04T12:00:00Z"
 
 
-def test_cli_does_not_export_an_approximate_time(monkeypatch, tmp_path):
+def test_every_entry_after_the_build_falls_back_inexact(monkeypatch):
+    monkeypatch.setattr(github, "_get", lambda url, token: [
+        {"event": "added_to_merge_queue", "created_at": "2026-10-04T12:20:00Z"}])
+    q = github.queued_at(EVENT, "quirq-ai/xo-space", token="")
+    assert (q.at, q.exact) == ("2026-10-04T12:05:00Z", False)
+
+
+def test_no_group_commit_time_uses_newest_entry(monkeypatch):
+    event = {"merge_group": {**EVENT["merge_group"], "head_commit": {}}}
+    monkeypatch.setattr(github, "_get", lambda url, token: [
+        {"event": "added_to_merge_queue", "created_at": "2026-10-04T11:00:00Z"},
+        {"event": "added_to_merge_queue", "created_at": "2026-10-04T12:20:00Z"}])
+    q = github.queued_at(event, "quirq-ai/xo-space", token="")
+    assert (q.at, q.exact) == ("2026-10-04T12:20:00Z", True)
+
+
+def test_cli_does_not_export_an_approximate_time(monkeypatch, tmp_path, capsys):
     def down(url, token):
         raise GateError("unreachable")
     monkeypatch.setattr(github, "_get", down)
@@ -57,6 +73,7 @@ def test_cli_does_not_export_an_approximate_time(monkeypatch, tmp_path):
     monkeypatch.setenv("GITHUB_ENV", str(env))
     assert main(["queued-at", "--event", str(event), "--repository", "quirq-ai/xo-space"]) == 1
     assert not env.exists()
+    assert capsys.readouterr().out == ""
 
 
 def test_falls_back_to_group_commit_time_marked_inexact(monkeypatch):
