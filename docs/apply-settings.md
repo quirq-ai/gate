@@ -65,6 +65,9 @@ Each ready repo gets:
 - `qq-release-refs-branches` and `qq-release-refs-tags`: `lkgr` and `channels/**` cannot be created,
   moved or deleted except by the release executor. Its identity is not decided yet, so today nobody
   can write them.
+- `qq-state-branches`, only where `state_branches` names some (gardener `ledger` and `tree-status`,
+  release `release-state`): those branches cannot be deleted or force-pushed. Their bots still push
+  to them normally.
 
 `verify` (and so `apply`) refuses a repo when:
 
@@ -79,10 +82,8 @@ Each ready repo gets:
   `!` patterns) or type filter that leaves out PRs into the default branch, `merge_group` types
   without `checks_requested`, or a name used by two jobs.
 
-What blocks which repo today (from `settings verify` on fresh clones, 2026-10-04 13:45 UTC):
+What blocks which repo today (from `settings verify` on fresh clones, 2026-10-04 13:55 UTC):
 
-- xo-space: xo-space #212 (`merge_group` on `tests.yml`, whose `tests` check stays required until
-  V0-ONB-01 retires it).
 - installer: no commits yet.
 - Every other repo: ready. `verify` prints each repo's commit, so a repo that moves between your
   clone and the run shows as not ready; clone again and re-run.
@@ -93,6 +94,12 @@ What blocks which repo today (from `settings verify` on fresh clones, 2026-10-04
 repo's `main` on every PR and queue entry, so a PR cannot satisfy them with its own same-named job:
 
 - `qq-toolchains-promotion-gate` (enabled): toolchains' `promotion-gate.yml` in toolchains.
+- `qq-xo-space-presubmit-pinned` and `qq-innernet-presubmit-pinned` (off): each product repo's
+  presubmit, run from infra-config's `.github/workflows/qq-required-<repo>-presubmit.yml` at a pinned
+  commit (`sha`), so neither a PR nor a dependency roll can change the workflow that judges it.
+  rollers auto-lands only into a repo that has one. They are switched on, with their `sha`, once
+  infra-config publishes those files. `apply` checks that the pinned commit is on infra-config's
+  `main` and holds the file.
 - `qq-drift` (off): infra-config's `qq-drift.yml` in the product repos. It stays off until
   infra-config's `qq-drift.yml` only checks the default branch against a pinned config; turning it on
   is a reviewed one-line change.

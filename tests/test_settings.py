@@ -30,7 +30,7 @@ def test_every_infra_and_product_repo_is_covered(s, cfg, config_root):
 
 def test_product_checks_come_from_the_gate(s, cfg, config_root):
     plans = plans_by_name(s, cfg, config_root)
-    assert plans["xo-space"].checks == ("xo-space-presubmit", "tests")
+    assert plans["xo-space"].checks == ("xo-space-presubmit",)
     assert plans["innernet"].checks == ("innernet-presubmit",)
 
 
@@ -151,7 +151,8 @@ def test_plan_prints_json(config_root, capsys):
     assert main(["settings", "plan", "--config", str(config_root), "--repo", "gate"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["(backend)"] == "github" and out["gate"]["rulesets"][0]["name"] == "qq-main"
-    assert {w["ruleset"] for w in out["(org)"]} == {"qq-drift", "qq-toolchains-promotion-gate"}
+    assert {w["ruleset"] for w in out["(org)"]} == {"qq-drift", "qq-toolchains-promotion-gate",
+                                                    "qq-xo-space-presubmit-pinned", "qq-innernet-presubmit-pinned"}
 
 
 def test_org_rulesets_run_a_workflow_from_another_repos_main(s, cfg):
@@ -163,6 +164,63 @@ def test_org_rulesets_run_a_workflow_from_another_repos_main(s, cfg):
     assert rs["conditions"]["repository_name"]["include"] == ["toolchains"]
     assert rs["rules"][0]["parameters"]["workflows"][0] == {
         "path": ".github/workflows/promotion-gate.yml", "repository_id": 42, "ref": "refs/heads/main"}
+
+
+def test_pinned_org_workflow_carries_its_sha(s, cfg):
+    """rollers R-2: a workflows rule counts only when every entry carries a 40-hex sha."""
+    org = {w["ruleset"]: w for w in settings.org_workflows(s, cfg)}
+    for repo in ("xo-space", "innernet"):
+        w = org[f"qq-{repo}-presubmit-pinned"]
+        assert w["targets"] == [repo] and w["repository"] == "infra-config" and repo in w["path"]
+        rs = github.org_ruleset({**w, "sha": "a" * 40}, [repo], repository_id=7)
+        assert rs["rules"][0]["parameters"]["workflows"][0]["sha"] == "a" * 40
+    assert "sha" not in github.org_ruleset(org["qq-toolchains-promotion-gate"], ["toolchains"], 1)[
+        "rules"][0]["parameters"]["workflows"][0]
+
+
+@pytest.mark.parametrize("field,value,why", [
+    ("sha", "abc123", "40-hex"), ("sha", "A" * 40, "40-hex"), ("ref", "main", "not a branch")])
+def test_org_workflow_pins_are_checked(s, cfg, field, value, why):
+    s["org_workflows"][2][field] = value
+    with pytest.raises(GateError, match=why):
+        settings.org_workflows(s, cfg)
+
+
+def test_apply_org_refuses_a_sha_that_is_not_on_the_branch(monkeypatch):
+    w = {"ruleset": "r", "repository": "infra-config", "path": ".github/workflows/x.yml",
+         "ref": "refs/heads/main", "sha": "b" * 40}
+    for status, ok in (("ahead", True), ("identical", True), ("diverged", False), ("behind", False)):
+        seen = []
+
+        def send(method, url, token, body=None, status=status):
+            seen.append((method, url))
+            if "/compare/" in url:
+                return {"status": status}
+            return [] if url.endswith("rulesets?per_page=100") else {"id": 9}
+        monkeypatch.setattr(github, "_send", send)
+        if ok:
+            assert "create ruleset r" in list(github.apply_org("quirq-ai", w, ["xo-space"], "t", write=False))[0]
+            assert any(u.endswith(f"/contents/.github/workflows/x.yml?ref={'b' * 40}") for _, u in seen)
+            assert all(m == "GET" for m, _ in seen)
+        else:
+            with pytest.raises(GateError, match="is not on infra-config main"):
+                list(github.apply_org("quirq-ai", w, ["xo-space"], "t", write=False))
+
+
+def test_state_branches_cannot_be_deleted_or_rewritten(s, cfg, config_root):
+    """gardener audit: deleting `ledger` resets the revert cap. The bots still push (no update rule)."""
+    plans = plans_by_name(s, cfg, config_root)
+    for repo, branches in (("gardener", ["ledger", "tree-status"]), ("release", ["release-state"])):
+        rs = {r["name"]: r for r in plans[repo].rulesets}["qq-state-branches"]
+        assert rs["conditions"]["ref_name"]["include"] == [f"refs/heads/{b}" for b in branches]
+        assert rs["rules"] == [{"type": "deletion"}, {"type": "non_fast_forward"}] and rs["bypass_actors"] == []
+    assert "qq-state-branches" not in {r["name"] for r in plans["sync"].rulesets}
+
+
+@pytest.mark.parametrize("bad", [["main"], ["a*"], ["x", "x"], "ledger", [""]])
+def test_state_branches_are_plain_names(bad):
+    with pytest.raises(GateError, match="state_branches"):
+        settings.repo_options({"name": "r", "state_branches": bad})
 
 
 def test_org_targets_must_be_known_repos(s, cfg):

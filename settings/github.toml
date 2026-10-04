@@ -55,14 +55,35 @@ path = ".github/workflows/promotion-gate.yml"
 ref = "refs/heads/main"
 targets = ["toolchains"]
 
+[[org_workflows]]
+# Each product repo's presubmit, run from infra-config at a pinned commit, so a PR (or a dependency
+# roll) cannot change the workflow that judges it. rollers' land check counts only a workflows rule
+# whose entries carry a 40-hex `sha` (rollers R-2). One ruleset per repo: the file names its repo.
+# Off until infra-config publishes the file on main; then set `sha` to that commit and enable.
+ruleset = "qq-xo-space-presubmit-pinned"
+enabled = false
+repository = "infra-config"
+path = ".github/workflows/qq-required-xo-space-presubmit.yml"
+ref = "refs/heads/main"
+targets = ["xo-space"]
+
+[[org_workflows]]
+ruleset = "qq-innernet-presubmit-pinned"
+enabled = false
+repository = "infra-config"
+path = ".github/workflows/qq-required-innernet-presubmit.yml"
+ref = "refs/heads/main"
+targets = ["innernet"]
+
 # --- product repos (required checks from infra-config) ---------------------------------------
 
 [[repo]]
 name = "xo-space"
 kind = "product"
-# tests.yml's `tests` job stays required until xo-space's manifest targets cover route parity,
-# the install harnesses, plugin sync and the Space UI syntax check (pipelines.toml). V0-ONB-01 drops it.
-transitional_checks = ["tests"]
+# tests.yml's `tests` is no longer required: the generated xo-space-presubmit runs everything it ran
+# (through pytest; xo-space #214 audit), and V0-ONB-01 deletes tests.yml, which a required `tests`
+# would block.
+transitional_checks = []
 
 [[repo]]
 name = "innernet"
@@ -133,6 +154,9 @@ checks = ["presubmit", "measure-result"]
 name = "gardener"
 kind = "infra"
 checks = ["presubmit"]
+# The revert ledger (deleting it would reset the auto-revert cap) and the published tree status. Its
+# workflows push to them; the qq-state-branches ruleset blocks only deletion and force-push.
+state_branches = ["ledger", "tree-status"]
 
 [[repo]]
 name = "rollers"
@@ -143,6 +167,7 @@ checks = ["test"]
 name = "release"
 kind = "infra"
 checks = ["presubmit"]
+state_branches = ["release-state"]   # channels.json and operation keys; same rules as gardener's
 
 # No commits and no presubmit yet. `verify` refuses a repo with no required check (its queue would
 # land anything) or no commits (qq-main would refuse the push that creates main), so apply skips it.

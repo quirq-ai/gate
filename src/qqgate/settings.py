@@ -84,7 +84,13 @@ def repo_options(r: dict) -> dict:
         raise GateError(f"{r['name']}: code_owner_review must be true or false, not {owners!r}")
     if isinstance(size, bool) or not isinstance(size, int):
         raise GateError(f"{r['name']}: queue_group_size must be an integer, not {size!r}")
-    return {"code_owner_review": owners, "group_size": size}
+    state = r.get("state_branches", [])
+    if not isinstance(state, list) or len(set(state)) != len(state) or not all(
+            isinstance(b, str) and re.fullmatch(r"[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*", b) and b != "main"
+            for b in state):
+        raise GateError(f"{r['name']}: state_branches must be distinct plain branch names (no patterns, "
+                        f"not main), not {state!r}")
+    return {"code_owner_review": owners, "group_size": size, "state_branches": tuple(state)}
 
 
 @dataclass
@@ -315,6 +321,10 @@ def org_workflows(s: dict, cfg: dict) -> list[dict]:
             raise GateError(f"org ruleset {w['ruleset']!r}: targets {unknown or '(none)'} are not repos in settings")
         if w["repository"] not in known:
             raise GateError(f"org ruleset {w['ruleset']!r}: repository {w['repository']!r} is not in settings")
+        if "sha" in w and not re.fullmatch(r"[0-9a-f]{40}", str(w["sha"])):
+            raise GateError(f"org ruleset {w['ruleset']!r}: sha {w['sha']!r} is not a full 40-hex commit")
+        if not str(w["ref"]).startswith("refs/heads/"):
+            raise GateError(f"org ruleset {w['ruleset']!r}: ref {w['ref']!r} is not a branch (refs/heads/...)")
         out.append({**w, "targets": targets})
     names = [w["ruleset"] for w in out]
     if len(set(names)) != len(names):
