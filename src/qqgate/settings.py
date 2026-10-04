@@ -16,8 +16,6 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import yaml
-
 from qqgate import backends, required
 from qqgate.errors import GateError
 
@@ -115,6 +113,7 @@ def _events(on) -> tuple[set[str], bool, dict, dict]:
 
 def workflow_jobs(checkout: Path) -> dict[str, Job]:
     """Check name (job `name:` or id) -> how it runs, across every workflow in a checkout."""
+    import yaml  # here, not at the top: `queued-at` runs with nothing installed (timing action)
     jobs: dict[str, Job] = {}
     for wf in sorted((checkout / ".github" / "workflows").glob("*.y*ml")):
         try:

@@ -1,4 +1,7 @@
 import json
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -98,3 +101,26 @@ def test_cli_exports_for_the_sink(monkeypatch, tmp_path, capsys):
     assert main(["queued-at", "--event", str(event), "--repository", "quirq-ai/xo-space"]) == 0
     assert capsys.readouterr().out.strip() == "2026-10-04T11:30:00Z"
     assert env.read_text() == "QQ_QUEUED_AT=2026-10-04T11:30:00Z\n"
+
+
+def test_action_runs_with_nothing_installed(tmp_path):
+    """Redelivery audit S3: the timing action installs nothing, so queued-at must import and run on
+    the standard library alone, with the working directory off the import path."""
+    root = Path(__file__).resolve().parents[1]
+    action = (root / "timing" / "action.yml").read_text()
+    assert "pip install" not in action and "python3 -I " in action
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps(EVENT))
+    (tmp_path / "yaml.py").write_text("raise SystemExit('the working directory was imported')\n")
+    code = (
+        "import sys\n"
+        "for m in ('yaml', 'jsonschema', 'qqsync'): sys.modules[m] = None\n"
+        "sys.path.insert(0, sys.argv[1])\n"
+        "from qqgate.backends import github\n"
+        "github._get = lambda url, token: [{'event': 'added_to_merge_queue', 'created_at': '2026-10-04T11:30:00Z'}]\n"
+        "from qqgate.cli import main\n"
+        "sys.exit(main(['queued-at', '--event', sys.argv[2], '--repository', 'quirq-ai/xo-space', '--no-export']))\n")
+    r = subprocess.run([sys.executable, "-I", "-c", code, str(root / "src"), str(event)],
+                       cwd=tmp_path, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == "2026-10-04T11:30:00Z"
