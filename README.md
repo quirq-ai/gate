@@ -99,7 +99,7 @@ is one sample.
 | --- | --- | --- |
 | bootstrap | #1 | merged |
 | V0-GAT-01 | #2 | merged; live demo waits on V0-ORG-03, V0-ONB-01/02 |
-| V0-ORG-03 | #3, #5, #9, #10, #13, #14, #15, #16, #17, #20 | merged; suraj ran `scripts/apply.sh` ([docs/apply-settings.md](docs/apply-settings.md)) at 6610664, which applied the repo rulesets. Org rulesets are all off: quirq-ai is on GitHub Free and suraj chose no org-wide rules; the Dependabot branch rules wait |
+| V0-ORG-03 | #3, #5, #9, #10, #13, #14, #15, #16, #17, #20, #23 | merged; suraj ran `scripts/apply.sh` ([docs/apply-settings.md](docs/apply-settings.md)) at 6610664, which applied the repo rulesets. Org rulesets are all off: quirq-ai is on GitHub Free and suraj chose no org-wide rules; the Dependabot branch rules wait |
 | V0-GAT-02 | #4 | merged |
 | V0-GAT-03 | | waits on V0-ORG-02 (suraj's owners) |
 | V0-GAT-04 | #6 | merged; the sink reads QQ_QUEUED_AT (test-pipelines 1e3ddb1). Numbers appear once infra-config adds the timing step and the queue runs |
