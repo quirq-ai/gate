@@ -11,17 +11,16 @@ export a token: qqgate asks `gh auth token` itself, after the step that runs inf
 has exited.
 
 ```sh
-rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && (cd qq-gate && git checkout -q <COMMIT> && scripts/apply.sh)
+mkdir -p ~/qq-apply && cd ~/qq-apply && rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && (cd qq-gate && git checkout -q <COMMIT> && scripts/apply.sh)
 ```
 
-Run it from the same directory every time (an empty one the first time); your shell stays in that
-directory. If your shell is still inside `qq-gate` from the older command, `cd ..` first. Each run clones `qq-gate`
+It always works in `~/qq-apply`, wherever you paste it, and leaves your shell there. Each run clones `qq-gate`
 fresh and builds its `.venv` from scratch, so nothing left in an earlier clone (an edited script, a
-package in the venv) can run. The one file kept between runs is `.qq-gate-org-done`, next to
-`qq-gate`, outside the clone.
+package in the venv) can run. The one file kept between runs is `~/qq-apply/.qq-gate-org-done`,
+outside the clone.
 
 **If anything was changed or deleted on GitHub** (a ruleset edited or removed in the UI, or one that
-looks off): run `rm -f .qq-gate-org-done` in that same directory, then the command again. Without
+looks off): run `rm -f ~/qq-apply/.qq-gate-org-done`, then the command again. Without
 that, a re-run of a commit whose org rulesets were already applied skips the org step and does not
 look at them on GitHub. The repo rulesets are always checked.
 

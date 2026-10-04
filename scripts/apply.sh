@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Apply the gate's settings: the one command in docs/apply-settings.md (V0-ORG-03, an org admin runs it).
-# Run from the same directory every time; each run clones ./qq-gate fresh, so nothing an earlier
+# It works in ~/qq-apply wherever it is pasted; each run clones qq-gate there fresh, so nothing an earlier
 # run left in it (an edited script, a package in the venv) can run:
 #
-#   rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && (cd qq-gate && git checkout -q <COMMIT> && scripts/apply.sh)
+#   mkdir -p ~/qq-apply && cd ~/qq-apply && rm -rf qq-gate && git clone -q https://github.com/quirq-ai/gate qq-gate && (cd qq-gate && git checkout -q <COMMIT> && scripts/apply.sh)
 #
 # It sets up a new hashed venv, clones infra-config at the pinned commit and every repo fresh, runs
 # verify and a dry run, and writes only after you type `yes`. A repo that moves during the run is
