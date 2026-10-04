@@ -350,9 +350,12 @@ def _apply(args) -> int:
         # plan (it moved) just drops its writes, but a change or WARNING the dry run did not show (a
         # repo turned ready, a ruleset edited on GitHub) refuses the whole write (re-check E-2).
         try:
-            saw = set(json.loads(Path(args.expect_plan).read_text()))
+            saw = json.loads(Path(args.expect_plan).read_text())
         except (OSError, ValueError) as e:
             raise GateError(f"--expect-plan {args.expect_plan}: cannot read the dry run's plan: {e}") from None
+        if not isinstance(saw, list) or not all(isinstance(h, str) and re.fullmatch(r"[0-9a-f]{64}", h) for h in saw):
+            raise GateError(f"--expect-plan {args.expect_plan}: not a plan saved by --save-plan (a JSON list of hashes)")
+        saw = set(saw)
         new = [shown[h] for h in sorted(shown) if h not in saw]
         if new:
             print("REFUSED  nothing written: the plan changed since the dry run, which did not show: "

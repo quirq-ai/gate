@@ -906,3 +906,13 @@ def test_plan_items_change_with_content():
     grown = dict(c, body={"conditions": {"repository_id": {"repository_ids": [1, 2]}}})
     for other in (dict(c, action="update"), grown, dict(c, diff=["rules"])):
         assert not set(cli._plan_items([], [other])) <= base
+
+
+@pytest.mark.parametrize("text", ['{"' + "a" * 64 + '": 1}', '["x"]', "[1]", "not json"])
+def test_expect_plan_must_be_a_saved_plan(apply_env, config_root, tmp_path, capsys, text):
+    """Re-check F-2: only a list of hashes from --save-plan is accepted (a JSON object is not)."""
+    apply_env.setattr(github, "plan_repo", lambda *a: [])
+    saved = tmp_path / "plan.json"
+    saved.write_text(text)
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=["--yes", "--expect-plan", str(saved)])) == 2
+    assert "--expect-plan" in capsys.readouterr().err
