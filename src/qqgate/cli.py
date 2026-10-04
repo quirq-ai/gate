@@ -12,8 +12,8 @@
         rulesets of ready repos; dry run unless --yes. Needs an admin token in QQ_GITHUB_TOKEN.
     qqgate guard --repo NAME [ROOT]   (V0-GAT-02)
         Fail if a core repo's shipped code names a language, build tool or deploy target.
-Exit codes: 0 ok or pass, 1 refused or not ready, 2 the gate could not decide, 3 the repo is not
-onboarded (not in repos.toml, so no gate applies; with --json, stdout says {"onboarded": false}).
+Exit codes: 0 ok or pass, 1 refused or not ready, 2 the gate could not decide, 3 (required,
+rule, verdict) the repo is not onboarded (not in repos.toml, so no gate applies; with --json, stdout says {"onboarded": false}).
 """
 from __future__ import annotations
 
@@ -30,6 +30,9 @@ from qqgate.errors import GateError, NotOnboarded
 
 def _required(args) -> tuple[dict, required.RequiredSet]:
     cfg = config.load(Path(args.config), validate=not args.no_validate)
+    known = sorted(r["name"] for r in cfg["repos"]["repo"])
+    if args.repo not in known:  # before the manifest, so an unknown repo is always exit 3
+        raise NotOnboarded(args.repo, known)
     manifest = required.load_manifest(Path(args.manifest), cfg) if args.manifest else None
     req = required.compute(cfg, args.repo, manifest)
     problems = backends.load(req.backend).check_workflows(Path(args.config), req)

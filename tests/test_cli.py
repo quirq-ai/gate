@@ -43,3 +43,6 @@ def test_not_onboarded_has_its_own_exit_code(config_root, capsys):
         assert "is not an onboarded repo" in capsys.readouterr().err
     assert main(["required", "--config", str(config_root), "--repo", "no-such-repo", "--json"]) == 3
     assert json.loads(capsys.readouterr().out) == {"repo": "no-such-repo", "onboarded": False}
+    # a manifest that cannot load must not hide that the repo is unknown
+    assert main(["required", "--config", str(config_root), "--repo", "no-such-repo",
+                 "--manifest", "/nonexistent/repo.toml"]) == 3
