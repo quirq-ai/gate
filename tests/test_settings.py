@@ -216,7 +216,7 @@ def test_org_rulesets_run_a_workflow_from_another_repos_main(s, cfg):
     org = {w["ruleset"]: w for w in settings.org_workflows(s, cfg)}
     assert org["qq-drift"]["targets"] == ["innernet", "xo-space"] and org["qq-drift"]["enabled"] is False
     tc = org["qq-toolchains-promotion-gate"]
-    assert tc["targets"] == ["toolchains"] and tc["enabled"] is False   # until it drops cancel-in-progress
+    assert tc["targets"] == ["toolchains"] and tc["enabled"] is True
     rs = github.org_ruleset(tc, ["toolchains"], repository_id=42)
     assert rs["conditions"]["repository_name"]["include"] == ["toolchains"]
     assert rs["rules"][0]["parameters"]["workflows"][0] == {
