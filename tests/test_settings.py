@@ -75,6 +75,15 @@ def test_code_owner_review_is_per_repo(s, cfg, config_root):
     assert owners("toolchains") is True and owners("sync") is False
 
 
+def test_toolchains_queue_merges_one_pr_per_group(s, cfg, config_root):
+    plans = plans_by_name(s, cfg, config_root)
+
+    def mq(name):
+        return next(r for r in plans[name].rulesets[0]["rules"] if r["type"] == "merge_queue")["parameters"]
+    assert (mq("toolchains")["max_entries_to_build"], mq("toolchains")["max_entries_to_merge"]) == (1, 1)
+    assert mq("sync")["max_entries_to_merge"] == 5
+
+
 def test_bypass_on_main_is_refused(s, cfg, config_root):
     s["main"]["bypass"] = [{"actor_id": 1}]
     with pytest.raises(GateError, match="nobody overrides the gate"):

@@ -69,7 +69,8 @@ def build(settings: dict, cfg: dict, config_root: Path) -> list[RepoPlan]:
             checks = tuple(r.get("checks", []))
         if len(set(checks)) != len(checks):
             raise GateError(f"{r['name']}: a required check is listed twice: {checks}")
-        rulesets = mod.rulesets(settings, cfg, checks, code_owner_review=bool(r.get("code_owner_review", False)))
+        rulesets = mod.rulesets(settings, cfg, checks, code_owner_review=bool(r.get("code_owner_review", False)),
+                                 group_size=int(r.get("queue_group_size", 5)))
         plans.append(RepoPlan(r["name"], r["kind"], checks, tuple(rulesets)))
     return plans
 

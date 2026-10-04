@@ -63,6 +63,24 @@ term = "pip"
 why = "Installs a pinned qq version into its own venv."
 
 [[allow]]
+repo = "depot"
+path = "src/qqdepot/gate.py"
+term = "python"
+why = "Installs the pinned qq gate package into its own venv (venv/bin/python -m pip)."
+
+[[allow]]
+repo = "depot"
+path = "src/qqdepot/gate.py"
+term = "pip"
+why = "Installs the pinned qq gate package into its own venv."
+
+[[allow]]
+repo = "depot"
+path = "src/qqdepot/watch.py"
+term = "python"
+why = "The usage line names how qq's own module is started (python -m qqdepot.watch)."
+
+[[allow]]
 repo = "sync"
 path = "src/qqsync/manifest.py"
 term = "python"

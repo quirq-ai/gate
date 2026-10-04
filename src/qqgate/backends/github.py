@@ -122,13 +122,16 @@ def _status_checks_rule(names) -> dict:
     }
 
 
-def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_review: bool = False) -> list[dict]:
+def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_review: bool = False,
+             group_size: int = 5) -> list[dict]:
     """V0-ORG-03: the repository rulesets (REST: POST /repos/{o}/{r}/rulesets) for one repo."""
     main, refs = settings["main"], settings["release_refs"]
     method = main["merge_method"].upper()
     if method.lower() != cfg["gate"]["merge_queue"]["merge_method"]:
         raise GateError(f"settings merge_method {main['merge_method']!r} differs from gate.toml's "
                         f"{cfg['gate']['merge_queue']['merge_method']!r}")
+    if not 1 <= group_size <= 5:
+        raise GateError(f"queue_group_size {group_size} must be 1 to 5")
     if main["bypass"]:
         raise GateError("settings [main] bypass must stay empty: nobody overrides the gate (policy change)")
     rules = [
@@ -147,8 +150,8 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
             # A verdict must arrive within the admission bar's hard limit (gate.toml [admission]).
             "check_response_timeout_minutes": cfg["gate"]["admission"]["max_minutes"],
             "grouping_strategy": "ALLGREEN",
-            "max_entries_to_build": 5,
-            "max_entries_to_merge": 5,
+            "max_entries_to_build": group_size,
+            "max_entries_to_merge": group_size,
             "merge_method": method,
             "min_entries_to_merge": 1,
             "min_entries_to_merge_wait_minutes": 5,
