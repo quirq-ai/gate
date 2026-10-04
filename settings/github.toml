@@ -144,9 +144,7 @@ name = "release"
 kind = "infra"
 checks = ["presubmit"]
 
-# No commits and no presubmit yet. `verify` refuses a repo with no required check (its queue would
-# land anything) or no commits (qq-main would refuse the push that creates main), so apply skips it.
 [[repo]]
 name = "installer"
 kind = "infra"
-checks = []
+checks = ["presubmit"]
