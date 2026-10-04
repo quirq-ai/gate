@@ -301,3 +301,55 @@ def observe(source: str, sha: str, expected: dict[str, str], token: str | None =
     for name in spoofed:
         out[name] = SPOOFED
     return out
+
+
+# --- V0-GAT-04: queue-entry time of a merge_group run -------------------------------------------
+
+def queue_pr_number(head_ref: str) -> int:
+    """The PR a merge-group ref was built for: refs/heads/gh-readonly-queue/main/pr-123-<sha>."""
+    import re
+    m = re.search(r"gh-readonly-queue/.+/pr-(\d+)-[0-9a-f]+$", head_ref or "")
+    if not m:
+        raise GateError(f"{head_ref!r} is not a merge-queue ref")
+    return int(m.group(1))
+
+
+def queued_at(event: dict, repository: str, token: str | None = None):
+    """When the PR behind a merge_group event entered the queue.
+
+    Exact: the newest `added_to_merge_queue` event on the PR's timeline (a PR removed and re-added
+    is timed from its last entry). Fallback, marked inexact: the merge-group commit's timestamp,
+    which is when the queue built the group, so it leaves out waiting before the build.
+    """
+    from qqgate import timing
+
+    mg = event.get("merge_group")
+    if not mg:
+        raise GateError("not a merge_group event, so it is not a gate run")
+    number = queue_pr_number(mg.get("head_ref", ""))
+    if token is None:
+        token = os.environ.get("QQ_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    try:
+        items = _get_list(f"{API}/repos/{repository}/issues/{number}/timeline", token)
+        added = [e["created_at"] for e in items if e.get("event") == "added_to_merge_queue" and e.get("created_at")]
+        if added:
+            return timing.QueuedAt(timing.rfc3339(max(added)), "timeline:added_to_merge_queue", True)
+    except GateError:
+        pass  # fall back below; the fallback is marked inexact
+    ts = (mg.get("head_commit") or {}).get("timestamp")
+    if not ts:
+        raise GateError(f"PR #{number}: no added_to_merge_queue event and no head_commit timestamp")
+    return timing.QueuedAt(timing.rfc3339(ts), "merge_group.head_commit.timestamp", False)
+
+
+def _get_list(url: str, token: str | None) -> list[dict]:
+    """GET a paged list endpoint that returns a bare JSON array."""
+    out, page = [], 1
+    while True:
+        items = _get(f"{url}?per_page=100&page={page}", token)
+        if not isinstance(items, list):
+            raise GateError(f"{url}: expected a list")
+        out += items
+        if len(items) < 100:
+            return out
+        page += 1

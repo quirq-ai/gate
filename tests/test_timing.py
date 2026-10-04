@@ -1,0 +1,63 @@
+import json
+
+import pytest
+
+from qqgate import timing
+from qqgate.backends import github
+from qqgate.cli import main
+from qqgate.errors import GateError
+
+EVENT = {"merge_group": {
+    "head_ref": "refs/heads/gh-readonly-queue/main/pr-212-0123456789abcdef0123456789abcdef01234567",
+    "head_commit": {"timestamp": "2026-10-04T14:05:00+02:00"},
+}}
+
+
+def test_rfc3339_normalizes_to_utc():
+    assert timing.rfc3339("2026-10-04T14:05:00+02:00") == "2026-10-04T12:05:00Z"
+    assert timing.rfc3339("2026-10-04T12:05:00Z") == "2026-10-04T12:05:00Z"
+    for bad in ("yesterday", "2026-10-04T12:05:00", None):
+        with pytest.raises(GateError):
+            timing.rfc3339(bad)
+
+
+def test_pr_number_from_queue_ref():
+    assert github.queue_pr_number(EVENT["merge_group"]["head_ref"]) == 212
+    with pytest.raises(GateError):
+        github.queue_pr_number("refs/heads/main")
+
+
+def test_newest_queue_entry_wins(monkeypatch):
+    timeline = [{"event": "added_to_merge_queue", "created_at": "2026-10-04T11:00:00Z"},
+                {"event": "removed_from_merge_queue", "created_at": "2026-10-04T11:10:00Z"},
+                {"event": "added_to_merge_queue", "created_at": "2026-10-04T11:30:00Z"},
+                {"event": "commented", "created_at": "2026-10-04T11:40:00Z"}]
+    seen = []
+    monkeypatch.setattr(github, "_get", lambda url, token: seen.append(url) or timeline)
+    q = github.queued_at(EVENT, "quirq-ai/xo-space", token="")
+    assert (q.at, q.exact) == ("2026-10-04T11:30:00Z", True)
+    assert "/repos/quirq-ai/xo-space/issues/212/timeline" in seen[0]
+
+
+def test_falls_back_to_group_commit_time_marked_inexact(monkeypatch):
+    def down(url, token):
+        raise GateError("unreachable")
+    monkeypatch.setattr(github, "_get", down)
+    q = github.queued_at(EVENT, "quirq-ai/xo-space", token="")
+    assert (q.at, q.exact, q.source) == ("2026-10-04T12:05:00Z", False, "merge_group.head_commit.timestamp")
+
+
+def test_not_a_gate_run():
+    with pytest.raises(GateError, match="not a merge_group"):
+        github.queued_at({"pull_request": {}}, "quirq-ai/xo-space", token="")
+
+
+def test_cli_exports_for_the_sink(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(github, "_get", lambda url, token: [
+        {"event": "added_to_merge_queue", "created_at": "2026-10-04T11:30:00Z"}])
+    event, env = tmp_path / "event.json", tmp_path / "env"
+    event.write_text(json.dumps(EVENT))
+    monkeypatch.setenv("GITHUB_ENV", str(env))
+    assert main(["queued-at", "--event", str(event), "--repository", "quirq-ai/xo-space"]) == 0
+    assert capsys.readouterr().out.strip() == "2026-10-04T11:30:00Z"
+    assert env.read_text() == "QQ_QUEUED_AT=2026-10-04T11:30:00Z\n"
