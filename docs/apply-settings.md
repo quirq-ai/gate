@@ -43,8 +43,10 @@ What the run does and does not do:
   settings, with an empty `HOME`: no token, SSH agent, netrc, `gh` or git config. Only that child
   runs infra-config's code. It still runs as your OS user, so what makes its code trustworthy is the
   pinned infra-config commit (apply refuses any other commit, or local changes). The process holding
-  your token takes only product repos' required check names and two gate.toml numbers from the child,
-  checks them, and builds every ruleset itself from `settings/github.toml`.
+  your token reads `settings/github.toml` before the child starts (and refuses if it changes), takes
+  only product repos' required check names and two gate.toml numbers from the child, checks that each
+  name is a job in a workflow the pinned infra-config generates and that the transitional checks come
+  last, and builds every ruleset itself.
 - The dry run sends only GETs. It prints a WARNING for classic branch protection or other rulesets
   already on a repo (they stack with ours: remove them, or check their required checks run on
   `merge_group`) and for a repo with squash merging turned off (the merge queue squashes).

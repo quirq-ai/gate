@@ -152,13 +152,14 @@ def _plan_without_token(args) -> dict:
 CHECK_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,99}$")
 
 
-def _trusted_plans(data: dict, wanted: list[str] | None):
-    """Rebuild the plan in this process from settings/github.toml, taking only check names and two
-    gate.toml values from the child, each validated; refuse if the child's rulesets differ."""
+def _trusted_plans(data: dict, wanted: list[str] | None, s: dict, config_root: Path):
+    """Rebuild the plan in this process from settings `s` (read before the child ran), taking only
+    check names and two gate.toml values from the child, each validated; refuse if the child's
+    rulesets differ. A product repo's gate-computed checks must each be a job in the workflow the
+    pinned infra-config generates for it (read here as YAML, no infra-config code runs)."""
     backend = data.get("(backend)")
     if backend != "github":
         raise GateError(f"plan names backend {backend!r}; only 'github' has settings")
-    s = settings.load_settings(backend)
     mod = backends.load(backend)
     gate = data.get("(gate)") or {}
     method, minutes = gate.get("merge_method"), gate.get("max_minutes")
@@ -183,6 +184,11 @@ def _trusted_plans(data: dict, wanted: list[str] | None):
         tail = list(r.get("transitional_checks", []))
         if r["kind"] == "product" and (not required[len(required) - len(tail):] == tail or len(required) <= len(tail)):
             raise GateError(f"plan's checks for {r['name']} {required} do not end with transitional {tail}")
+        if r["kind"] == "product":
+            for c in required[:len(required) - len(tail)]:
+                if c not in mod.generated_jobs(config_root, r["name"], c):
+                    raise GateError(f"plan's check {c!r} for {r['name']} is not a job in a workflow the pinned "
+                                    "infra-config generates")
         rulesets = mod.rulesets(s, cfg, tuple(required), **settings.repo_options(r))
         if rulesets != d.get("rulesets"):
             raise GateError(f"plan's rulesets for {r['name']} differ from what settings/github.toml builds")
@@ -250,7 +256,13 @@ def _apply(args) -> int:
     stale = _config_at_pin(Path(args.config))
     if stale:
         raise GateError(f"{stale}; check out the pinned commit (docs/apply-settings.md)")
-    s, mod, plans, org = _trusted_plans(_plan_without_token(args), args.repo)
+    settings_file = settings.SETTINGS / "github.toml"
+    before = settings_file.read_bytes()
+    s = settings.load_settings("github")
+    data = _plan_without_token(args)
+    if settings_file.read_bytes() != before:
+        raise GateError(f"{settings_file} changed while the plan was computed; refusing to apply")
+    s, mod, plans, org = _trusted_plans(data, args.repo, s, Path(args.config))
     ready, heads = _ready(plans, args.checkouts, s)
     _print_ready(plans, ready, heads)
     owner = s["org"]["owner"]

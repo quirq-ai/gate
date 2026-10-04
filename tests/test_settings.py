@@ -1,3 +1,4 @@
+import argparse
 import copy
 import json
 import subprocess
@@ -271,11 +272,16 @@ def test_tampered_child_plan_is_refused(apply_env, config_root, tmp_path, capsys
         lambda d: d["sync"]["required"].append("extra"),
         lambda d: d.update({"evil": {"kind": "infra", "required": [], "rulesets": []}}),
         lambda d: d["(gate)"].update({"max_minutes": 100000}),
+        # a weaker product check, with rulesets to match: refused, it is no generated job
+        lambda d: d.update({"xo-space": {**d["xo-space"], "required": ["lint", "tests"], "rulesets": github.rulesets(
+            settings.load_settings("github"), {"gate": {"merge_queue": {"merge_method": "squash"},
+                                                        "admission": {"max_minutes": d["(gate)"]["max_minutes"]}}},
+            ("lint", "tests"))}}),
         lambda d: d.update({"(backend)": "other"}),
     ]
     for t in tampers:
         def plan(args, t=t):
-            d = _child_plan(args)
+            d = _child_plan(argparse.Namespace(**{**vars(args), "repo": ["sync", "xo-space"]}))
             t(d)
             return d
         apply_env.setattr(cli, "_plan_without_token", plan)
@@ -342,6 +348,8 @@ def test_squash_off_is_reported(monkeypatch):
     ("  test:\n    needs: build\n    if: always() && true\n    runs-on: x\n", "without exactly"),
     ("  test:\n    uses: ./.github/workflows/inner.yml\n", "reusable workflow"),
     ("  test:\n    needs: build\n    if: always()\n    runs-on: x\n", "never reads needs"),
+    ("  test:\n    needs: build\n    if: always()\n    runs-on: x\n    steps:\n      - run: echo ${{ needs.build.outputs.v }}\n",
+     "never reads needs"),
 ])
 def test_audit_s5_holes_are_closed(s, cfg, config_root, tmp_path, job, why):
     plan = plans_by_name(s, cfg, config_root)["sync"]
@@ -410,3 +418,23 @@ def test_checkout_must_come_from_the_real_repo(tmp_path):
     _git("push", "-q", "origin", "HEAD:main", cwd=work)
     st = settings.checkout_state(work, "https://github.com/quirq-ai/work")
     assert "not https://github.com/quirq-ai/work" in st.problems[0]
+
+
+def test_child_process_sees_no_credentials(tmp_path, monkeypatch):
+    """S8, end to end: a stub qqcfg records the environment the real child process runs with."""
+    from qqgate import cli
+    root = tmp_path / "cfg"
+    (root / "tools").mkdir(parents=True)
+    seen = tmp_path / "env.json"
+    (root / "tools" / "qqcfg.py").write_text(
+        "import json, os\n"
+        f"json.dump(sorted(os.environ), open({str(seen)!r}, 'w'))\n"
+        "raise SystemExit('stub')\n")
+    for k in ("QQ_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "SSH_AUTH_SOCK", "NETRC", "DATABASE_URL"):
+        monkeypatch.setenv(k, "secret")
+    args = argparse.Namespace(config=str(root), repo=None, no_validate=False)
+    with pytest.raises(GateError, match="computing the plan failed"):
+        cli._plan_without_token(args)
+    env = set(json.loads(seen.read_text()))
+    assert not env & {"QQ_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "SSH_AUTH_SOCK", "NETRC", "DATABASE_URL"}
+    assert "HOME" in env

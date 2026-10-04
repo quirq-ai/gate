@@ -57,6 +57,17 @@ def generated_workflow(config_root: Path, repo: str, builder: str) -> Path:
     return Path(config_root) / "generated" / "github" / repo / f"qq-{builder}.yml"
 
 
+def generated_jobs(config_root: Path, repo: str, builder: str) -> set[str]:
+    """Job names in the workflow infra-config generates for a builder; empty if there is none."""
+    path = generated_workflow(config_root, repo, builder)
+    try:
+        doc = yaml.safe_load(path.read_text()) if path.is_file() else None
+    except (OSError, yaml.YAMLError):
+        return set()
+    jobs = doc.get("jobs") if isinstance(doc, dict) else None
+    return {str(k) for k in jobs} if isinstance(jobs, dict) else set()
+
+
 def workflow_path(builder: str) -> str:
     """Where a delivered workflow lives in the product repo (qqcfg deliver)."""
     return f".github/workflows/qq-{builder}.yml"

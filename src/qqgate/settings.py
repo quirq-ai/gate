@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import os
+import re
 import subprocess
 import tomllib
 from dataclasses import dataclass, field
@@ -138,8 +140,11 @@ def workflow_jobs(checkout: Path) -> dict[str, Job]:
                 j.pr_filters.append(pr)
             if mg:
                 j.mg_filters.append(mg)
-            j.reads_needs = j.reads_needs or "needs." in json.dumps(job, default=str)
+            j.reads_needs = j.reads_needs or bool(NEEDS_RESULT.search(json.dumps(job, default=str)))
     return jobs
+
+
+NEEDS_RESULT = re.compile(r"needs\.(\*|[\w-]+)\.result")
 
 
 def _is_always(condition: str) -> bool:
@@ -242,7 +247,9 @@ def readiness(plan: RepoPlan, checkout: Path, allow_conditional: tuple[str, ...]
 
 def _git(checkout: Path, *args: str) -> str | None:
     try:
-        r = subprocess.run(["git", "-C", str(checkout), *args], capture_output=True, text=True, timeout=60)
+        # No user or system git config: an insteadOf rule could point ls-remote at a mirror.
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        r = subprocess.run(["git", "-C", str(checkout), *args], capture_output=True, text=True, timeout=60, env=env)
     except (OSError, subprocess.TimeoutExpired):
         return None
     return r.stdout.strip() if r.returncode == 0 else None
@@ -291,6 +298,8 @@ def checkout_state(checkout: Path, expected_origin: str | None = None) -> Checko
         problems.append(f"checkout is on {local_branch or 'a detached HEAD'}, not the default branch {branch}")
     if head != remote_head:
         problems.append(f"checkout is at {head[:12]} but {branch} is at {remote_head[:12]}: delete it and clone again")
+    if _git(checkout, "status", "--porcelain"):
+        problems.append("checkout has local changes: delete it and clone again")
     return CheckoutState(head, branch, tuple(problems))
 
 
