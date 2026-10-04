@@ -164,9 +164,3 @@ repo = "test-pipelines"
 path = "src/qqresults/retry.py"
 term = "pytest"
 why = "Docstring example of how a JUnit reporter records an exception in a test body; the logic reads JUnit only."
-
-[[allow]]
-repo = "test-pipelines"
-path = "src/qqresults/retry.py"
-term = "java"
-why = "Root exception class names as JUnit reports them (java.lang.Throwable), listed so an uninformative failure kind fails closed; data about reports, not a target."
