@@ -57,10 +57,15 @@ def test_runtime_is_not_a_finding(tmp_path, terms):
     assert guard.scan_repo(root, "depot", terms) == []
 
 
-def test_allow_list_is_per_repo_path_and_term(tmp_path, terms):
-    files = {"src/qqdepot/store.py": 'A = "application/vnd.docker.distribution.manifest.v2+json"\n'}
-    assert guard.scan_repo(core_repo(tmp_path / "a", files), "depot", terms) == []
-    assert [f.term for f in guard.scan_repo(core_repo(tmp_path / "b", files), "sync", terms)] == ["docker"]
+def test_media_types_are_formats_not_targets(tmp_path, terms):
+    files = {"src/x/oci.py": 'A = "application/vnd.docker.distribution.manifest.v2+json"\nB = "docker"\n'}
+    assert [(f.line, f.term) for f in guard.scan_repo(core_repo(tmp_path, files), "sync", terms)] == [(2, "docker")]
+
+
+def test_allow_list_is_per_repo_and_path(tmp_path, terms):
+    files = {"src/qqgate/guard.py": 'X = "pytest"\n'}
+    assert guard.scan_repo(core_repo(tmp_path / "a", files), "gate", terms) == []
+    assert [f.term for f in guard.scan_repo(core_repo(tmp_path / "b", files), "sync", terms)] == ["pytest"]
 
 
 def test_unparseable_code_is_refused(tmp_path, terms):

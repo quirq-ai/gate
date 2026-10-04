@@ -81,6 +81,10 @@ def _pieces_py(text: str, path: str) -> list[tuple[int, str, str]]:
     return out
 
 
+# Registered media types name formats, not deploy targets: application/vnd.docker.distribution...
+MEDIA_TYPE = re.compile(r"\b[a-z]+/vnd\.[A-Za-z0-9.+_-]+")
+
+
 def _split_identifier(s: str) -> str:
     """'run_pytest' and 'runPytest' -> 'run pytest' so whole-word matching sees the term."""
     return re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", s).replace("_", " ")
@@ -99,7 +103,7 @@ def scan_file(path: Path, rel: str, terms: dict) -> list[Finding]:
         pieces = [(i, "text", line) for i, line in enumerate(text.splitlines(), 1)]
     found = set()
     for ln, kind, t in pieces:
-        for m in rx.finditer(t):
+        for m in rx.finditer(MEDIA_TYPE.sub(" ", t)):
             term = m.group(1).lower()
             found.add(Finding(rel, ln, term, cat[term], kind))
     return sorted(found, key=lambda f: (f.line, f.term, f.where))

@@ -33,9 +33,4 @@ repo = "gate"
 path = "src/qqgate/guard.py"
 term = "*"
 why = "The guard's own docstrings and tests of matching name the terms it looks for."
-
-[[allow]]
-repo = "depot"
-path = "src/qqdepot/store.py"
-term = "docker"
-why = "The OCI registry media type application/vnd.docker.distribution.manifest.v2+json, not a deploy target."
+# Media types (application/vnd.docker.distribution...) are formats, not targets; the guard skips them.
