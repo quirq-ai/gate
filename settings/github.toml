@@ -125,9 +125,8 @@ allow_conditional = ["cross-backend"]
 [[repo]]
 name = "perf"
 kind = "infra"
-# `measure` (build size and benchmarks end to end) is a matrix job, so it cannot be required as is;
-# it becomes required once perf adds an `if: always()` aggregator over it.
-checks = ["presubmit"]
+# measure-result aggregates the `measure` matrix (build size and benchmarks end to end).
+checks = ["presubmit", "measure-result"]
 
 [[repo]]
 name = "gardener"
