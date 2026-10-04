@@ -30,9 +30,12 @@ runs:
       run: |
         set -uo pipefail
         # Nothing is installed: queued-at needs only the standard library (Python 3.11+), so no
-        # package is resolved or downloaded on a merge-queue run. -I keeps the checked-out repo (the
-        # working directory), PYTHONPATH and user site-packages off the import path.
-        if at=$(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from qqgate.cli import main; sys.exit(main(["queued-at"]))' \
+        # package is resolved or downloaded on a merge-queue run. -I -S keep the checked-out repo
+        # (the working directory), PYTHON* variables and all site-packages (.pth files included)
+        # off the import path; -B writes no bytecode into the action's copy.
+        if ! python3 -I -S -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
+          echo "::warning::qq gate timing: needs python3 3.11 or later on PATH; the scorecard will not time this run"
+        elif at=$(python3 -I -S -B -c 'import sys; sys.path.insert(0, sys.argv[1]); from qqgate.cli import main; sys.exit(main(["queued-at"]))' \
             "$GITHUB_ACTION_PATH/../src"); then
           echo "queued-at=$at" >> "$GITHUB_OUTPUT"
         else

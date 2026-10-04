@@ -104,23 +104,65 @@ def test_cli_exports_for_the_sink(monkeypatch, tmp_path, capsys):
 
 
 def test_action_runs_with_nothing_installed(tmp_path):
-    """Redelivery audit S3: the timing action installs nothing, so queued-at must import and run on
-    the standard library alone, with the working directory off the import path."""
+    """Redelivery audit S3: the timing action installs nothing. Run its own step script with a
+    python3 that has no site-packages, a decoy module in the working directory and a stubbed
+    timeline: queued-at must load only the standard library and qqgate."""
+    import yaml
     root = Path(__file__).resolve().parents[1]
-    action = (root / "timing" / "action.yml").read_text()
-    assert "pip install" not in action and "python3 -I " in action
+    action = yaml.safe_load((root / "timing" / "action.yml").read_text())
+    script = action["runs"]["steps"][0]["run"]
+    assert "pip install" not in script
     event = tmp_path / "event.json"
     event.write_text(json.dumps(EVENT))
     (tmp_path / "yaml.py").write_text("raise SystemExit('the working directory was imported')\n")
-    code = (
+    # A python3 shim that stubs the timeline and reports every module loaded from outside the stdlib.
+    shim = tmp_path / "bin" / "python3"
+    shim.parent.mkdir()
+    hook = tmp_path / "hook"
+    hook.mkdir()
+    (hook / "qqtest_hook.py").write_text(
+        "import atexit, sys\n"
+        "def _check():\n"
+        "    bad = sorted(m for m in sys.modules if m.split('.')[0] not in sys.stdlib_module_names\n"
+        "                 and m.split('.')[0] not in ('qqgate', 'qqtest_hook', '__main__'))\n"
+        "    if bad: sys.stderr.write(f'NON-STDLIB {bad}\\n'); sys.stdout.flush(); import os; os._exit(9)\n"
+        "atexit.register(_check)\n"
+        "def stub():\n"
+        "    from qqgate.backends import github\n"
+        "    github._get = lambda url, token: [{'event': 'added_to_merge_queue', 'created_at': '2026-10-04T11:30:00Z'}]\n")
+    # The shim keeps the action's isolation (-I -S) and runs its -c code with the hook loaded.
+    shim.write_text(
+        "#!" + sys.executable + " -ISB\n"
         "import sys\n"
-        "for m in ('yaml', 'jsonschema', 'qqsync'): sys.modules[m] = None\n"
-        "sys.path.insert(0, sys.argv[1])\n"
-        "from qqgate.backends import github\n"
-        "github._get = lambda url, token: [{'event': 'added_to_merge_queue', 'created_at': '2026-10-04T11:30:00Z'}]\n"
-        "from qqgate.cli import main\n"
-        "sys.exit(main(['queued-at', '--event', sys.argv[2], '--repository', 'quirq-ai/xo-space', '--no-export']))\n")
-    r = subprocess.run([sys.executable, "-I", "-c", code, str(root / "src"), str(event)],
-                       cwd=tmp_path, capture_output=True, text=True, timeout=60)
-    assert r.returncode == 0, r.stderr
-    assert r.stdout.strip() == "2026-10-04T11:30:00Z"
+        f"sys.path.insert(0, {str(hook)!r})\n"
+        "args = sys.argv[1:]\n"
+        "assert args[:2] in (['-I', '-S'],), args\n"
+        "code, rest = args[args.index('-c') + 1], args[args.index('-c') + 2:]\n"
+        "sys.argv = ['-c'] + rest\n"
+        "if 'qqgate.cli' in code:\n"
+        "    sys.path.insert(0, rest[0])\n"
+        "    import qqtest_hook; qqtest_hook.stub()\n"
+        "exec(compile(code, '<action>', 'exec'))\n")
+    shim.chmod(0o755)
+    out = tmp_path / "out"
+    env = {"PATH": f"{shim.parent}:/usr/bin:/bin", "GITHUB_ACTION_PATH": str(root / "timing"),
+           "GITHUB_EVENT_PATH": str(event), "GITHUB_REPOSITORY": "quirq-ai/xo-space",
+           "GITHUB_OUTPUT": str(out), "GITHUB_ENV": str(tmp_path / "env"), "QQ_GITHUB_TOKEN": "t"}
+    r = subprocess.run(["bash", "-c", script], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0 and "::warning" not in r.stdout, r.stdout + r.stderr
+    assert out.read_text() == "queued-at=2026-10-04T11:30:00Z\n"
+    assert (tmp_path / "env").read_text() == "QQ_QUEUED_AT=2026-10-04T11:30:00Z\n"
+
+
+def test_action_warns_on_an_old_python(tmp_path):
+    import yaml
+    root = Path(__file__).resolve().parents[1]
+    script = yaml.safe_load((root / "timing" / "action.yml").read_text())["runs"]["steps"][0]["run"]
+    shim = tmp_path / "python3"
+    shim.write_text("#!/bin/sh\nexit 1\n")
+    shim.chmod(0o755)
+    r = subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True, timeout=60,
+                       env={"PATH": f"{tmp_path}:/usr/bin:/bin", "GITHUB_ACTION_PATH": str(root / "timing"),
+                            "GITHUB_OUTPUT": str(tmp_path / "out")})
+    assert r.returncode == 0 and "needs python3 3.11 or later" in r.stdout
+    assert not (tmp_path / "out").exists()
