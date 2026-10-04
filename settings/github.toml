@@ -113,6 +113,7 @@ targets = ["innernet"]
 
 [[repo]]
 name = "xo-space"
+allow_auto_merge = false              # suraj (2026-10-04): xo-space PRs land by his own "Merge when ready"
 kind = "product"
 # tests.yml's `tests` is no longer required: the generated xo-space-presubmit runs everything it ran
 # (through pytest; xo-space #214 audit), and V0-ONB-01 deletes tests.yml, which a required `tests`
@@ -125,6 +126,7 @@ dependabot_branches = false
 
 [[repo]]
 name = "innernet"
+allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "product"
 transitional_checks = []
 # Deferred (gate re-check D-1): the Dependabot app id below cannot be verified from here, and
@@ -136,11 +138,13 @@ dependabot_branches = false
 
 [[repo]]
 name = "infra-config"
+allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "infra"
 checks = ["validate"]                # qq-drift skips itself here; it is the org workflow below
 
 [[repo]]
 name = "depot"
+allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "infra"
 # Every tag is trusted by depot's pins: a version-only pin (xo-space and innernet `[qq] version`)
 # installs tag v<version>, and a git: digest must be on a branch or tag (src/qqdepot/pin.py). Nobody
@@ -154,16 +158,19 @@ checks = ["test", "parity-compare"]
 
 [[repo]]
 name = "sync"
+allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "infra"
 checks = ["test"]
 
 [[repo]]
 name = "recipes"
+allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "infra"
 checks = ["presubmit"]
 
 [[repo]]
 name = "test-pipelines"
+allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "infra"
 checks = ["presubmit"]
 # scorecard.yml fetches `results`, commits on top and pushes without force (gate re-check D-6).
@@ -171,11 +178,13 @@ state_branches = ["results"]
 
 [[repo]]
 name = "gate"
+allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "infra"
 checks = ["presubmit"]
 
 [[repo]]
 name = "toolchains"
+allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "infra"
 checks = ["ci"]                      # aggregates unit
 # promotion-gate is not required here: it runs on pull_request_target (never in the merge queue),
@@ -190,6 +199,7 @@ queue_group_size = 1
 
 [[repo]]
 name = "remote-build"
+allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "infra"
 checks = ["presubmit", "cross-backend"]
 # cross-backend skips on fork PRs, which have no token to dispatch the GitHub backend; the merge
@@ -198,6 +208,7 @@ allow_conditional = ["cross-backend"]
 
 [[repo]]
 name = "perf"
+allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "infra"
 # measure-result aggregates the `measure` matrix (build size and benchmarks end to end).
 checks = ["presubmit", "measure-result"]
@@ -205,6 +216,7 @@ state_branches = ["perf-data"]       # the measurement history; its workflow app
 
 [[repo]]
 name = "gardener"
+allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "infra"
 checks = ["presubmit"]
 # The revert ledger (deleting it would reset the auto-revert cap) and the published tree status. Its
@@ -213,11 +225,13 @@ state_branches = ["ledger", "tree-status"]
 
 [[repo]]
 name = "rollers"
+allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "infra"
 checks = ["test"]
 
 [[repo]]
 name = "release"
+allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "infra"
 checks = ["presubmit"]
 # channels.json and operation keys; same rules as gardener's. TODO(suraj): once the release executor
@@ -226,5 +240,6 @@ state_branches = ["release-state"]
 
 [[repo]]
 name = "installer"
+allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "infra"
 checks = ["presubmit"]

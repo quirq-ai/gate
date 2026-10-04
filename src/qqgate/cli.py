@@ -283,6 +283,11 @@ def _token() -> str:
 
 
 def _print_change(c: dict) -> None:
+    if c.get("kind") == "setting":
+        v = json.dumps(c["body"][c["name"]])
+        now = "" if c["action"] == "unchanged" else f" (now {json.dumps(c['now'])})"
+        print(f"plan     {c['where']}: {c['action']} setting {c['name']} = {v}{now}", flush=True)
+        return
     extra = f" (differs: {', '.join(c['diff'])})" if c["diff"] else ""
     print(f"plan     {c['where']}: {c['action']} ruleset {c['name']}{extra}", flush=True)
 
@@ -314,6 +319,10 @@ def _apply(args) -> int:
                 warnings.append(f"{p.name}: {line}")
                 print(f"WARNING  {p.name}: {line}", flush=True)
             for c in mod.plan_repo(owner, p.name, list(p.rulesets), token):
+                changes.append(c)
+                _print_change(c)
+            wanted = settings.repo_settings(next(r for r in s["repo"] if r["name"] == p.name))
+            for c in mod.plan_repo_settings(owner, p.name, wanted, token):
                 changes.append(c)
                 _print_change(c)
         if args.org:
@@ -364,7 +373,7 @@ def _apply(args) -> int:
     refuse = []
     if warnings and not args.accept_warnings:
         refuse.append("WARNING lines above (review them, then add --accept-warnings)")
-    differs = [f"{c['where']} {c['name']}" for c in todo if c["action"] == "update"]
+    differs = [f"{c['where']} {c['name']}" for c in todo if c["action"] == "update" and c.get("kind") != "setting"]
     if differs and not args.overwrite:
         refuse.append(f"live rulesets differ from settings: {', '.join(differs)} (add --overwrite to replace them; "
                       "anything added in the UI, such as a bypass, is removed)")

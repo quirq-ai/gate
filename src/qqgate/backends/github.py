@@ -337,6 +337,17 @@ def plan_repo(owner: str, repo: str, wanted: list[dict], token: str) -> list[dic
     return out
 
 
+def plan_repo_settings(owner: str, repo: str, wanted: dict, token: str) -> list[dict]:
+    """Read-only: what PATCHing the repo's settings (allow_auto_merge) would change, one per setting."""
+    if not wanted:
+        return []
+    url = f"{API}/repos/{owner}/{repo}"
+    live = _send("GET", url, token)
+    return [{"where": f"{owner}/{repo}", "name": k, "kind": "setting",
+             "action": "unchanged" if live.get(k) == v else "update", "method": "PATCH", "url": url,
+             "body": {k: v}, "diff": [], "now": live.get(k)} for k, v in sorted(wanted.items())]
+
+
 def _change(where: str, rs: dict, url: str, live: dict | None) -> dict:
     if live is None:
         return {"where": where, "name": rs["name"], "action": "create", "method": "POST", "url": url, "body": rs,
@@ -376,6 +387,8 @@ def _diff(live, ours, path: str = "") -> list[str]:
 def write(change: dict, token: str) -> str:
     """Send one planned create or update; returns the line to print once it is live."""
     _send(change["method"], change["url"], token, change["body"])
+    if change.get("kind") == "setting":
+        return f"{change['where']}: {change['action']} setting {change['name']} = {json.dumps(change['body'][change['name']])}"
     return f"{change['where']}: {change['action']} ruleset {change['name']}"
 
 

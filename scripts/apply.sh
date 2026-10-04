@@ -129,8 +129,8 @@ phase() {
         || cancel "nothing more was written for $what"
       f+=(--overwrite)
     fi
-    if grep -Eq '^plan .*: (create|update) ruleset' .qq/dry.txt; then
-      n=$(grep -cE '^plan .*: (create|update) ruleset' .qq/dry.txt)
+    if grep -Eq '^plan .*: (create|update) (ruleset|setting)' .qq/dry.txt; then
+      n=$(grep -cE '^plan .*: (create|update) (ruleset|setting)' .qq/dry.txt)
       [ "$n" = 1 ] && c=change || c=changes
       ask "Apply these $n $c to GitHub ($what, the 'plan' lines above)?" "apply" || cancel "nothing more was written for $what"
       say "Writing $what"
@@ -171,7 +171,7 @@ phase() {
 }
 
 # 5. Repo rulesets.
-phase "the repo rulesets"
+phase "the repo rulesets and settings"
 
 # 6. Org rulesets, only when settings/github.toml enables one (they need admin:org). A re-run of
 #    a commit whose org rulesets an earlier run applied skips this step and its browser prompts.

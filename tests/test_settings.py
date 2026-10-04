@@ -430,6 +430,7 @@ def apply_env(monkeypatch, config_root):
     monkeypatch.setattr(github, "existing_protection", lambda *a: [])
     monkeypatch.setattr(cli, "_plan_without_token", _child_plan)
     monkeypatch.setattr(settings, "org_workflow_readiness", lambda *a: [])
+    monkeypatch.setattr(github, "plan_repo_settings", lambda *a: [])
     return monkeypatch
 
 
@@ -916,3 +917,39 @@ def test_expect_plan_must_be_a_saved_plan(apply_env, config_root, tmp_path, caps
     saved.write_text(text)
     assert main(_apply_args(config_root, tmp_path, "sync", extra=["--yes", "--expect-plan", str(saved)])) == 2
     assert "--expect-plan" in capsys.readouterr().err
+
+
+def test_allow_auto_merge_is_set_per_repo_and_type_checked(s):
+    want = {r["name"]: settings.repo_settings(r).get("allow_auto_merge") for r in s["repo"]}
+    assert want.pop("xo-space") is False and set(want.values()) == {True}   # suraj, 2026-10-04
+    with pytest.raises(GateError, match="allow_auto_merge must be true or false"):
+        settings.repo_settings({"name": "x", "allow_auto_merge": "yes"})
+
+
+def test_plan_repo_settings_reads_then_plans_a_patch(monkeypatch):
+    sent = []
+    monkeypatch.setattr(github, "_send", lambda m, url, token, body=None: sent.append((m, url)) or
+                        {"allow_auto_merge": False})
+    [c] = github.plan_repo_settings("quirq-ai", "gate", {"allow_auto_merge": True}, "t")
+    assert sent == [("GET", "https://api.github.com/repos/quirq-ai/gate")]
+    assert (c["action"], c["method"], c["body"], c["now"]) == ("update", "PATCH", {"allow_auto_merge": True}, False)
+    monkeypatch.setattr(github, "_send", lambda *a, **k: {"allow_auto_merge": True})
+    assert github.plan_repo_settings("quirq-ai", "gate", {"allow_auto_merge": True}, "t")[0]["action"] == "unchanged"
+    assert github.plan_repo_settings("quirq-ai", "gate", {}, "t") == []
+
+
+def test_apply_writes_a_setting_without_overwrite(apply_env, config_root, tmp_path, capsys):
+    apply_env.setattr(github, "plan_repo", lambda *a: [])
+    apply_env.setattr(github, "plan_repo_settings", lambda owner, repo, wanted, token: [
+        {"where": f"{owner}/{repo}", "name": "allow_auto_merge", "kind": "setting", "action": "update",
+         "method": "PATCH", "url": f"https://api.github.com/repos/{owner}/{repo}", "body": wanted, "diff": [],
+         "now": False}])
+    sent = []
+    apply_env.setattr(github, "_send", lambda m, url, token, body=None: sent.append((m, url, body)) or {})
+    assert main(_apply_args(config_root, tmp_path, "sync")) == 0
+    out = capsys.readouterr().out
+    assert "plan     quirq-ai/sync: update setting allow_auto_merge = true (now false)" in out and sent == []
+    assert "(differs: " not in out   # apply.sh asks about 'differs' only for rulesets
+    assert main(_apply_args(config_root, tmp_path, "sync", extra=["--yes"])) == 0
+    assert sent == [("PATCH", "https://api.github.com/repos/quirq-ai/sync", {"allow_auto_merge": True})]
+    assert "quirq-ai/sync: update setting allow_auto_merge = true" in capsys.readouterr().out

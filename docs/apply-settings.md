@@ -43,7 +43,7 @@ look at them on GitHub. The repo rulesets are always checked.
    `WARNING` (other protection already on a repo, see below) or a ruleset marked `differs` (one of
    ours that is not what settings say: settings changed, or someone edited it on GitHub; writing
    replaces it, so a bypass added in the UI is removed).
-6. Writes the repo rulesets. A repo that moved between its clone and the write is skipped by
+6. Writes the repo rulesets and repo settings (`allow_auto_merge`, below). A repo that moved between its clone and the write is skipped by
    qqgate; the script clones it again and offers just that repo again (dry run and `yes`), up to
    three rounds, so you do not start over.
 7. Only if an org ruleset is enabled in `settings/github.toml` (today none: quirq-ai is on GitHub
@@ -213,6 +213,15 @@ App tokens); PRs already open get it on their next push. The org's plan does not
 github.com/organizations/quirq-ai/settings/rules, opens that ruleset and sets Enforcement to
 Disabled (or Evaluate, which reports without blocking). Then fix the file, re-pin, and run the
 command again; it sets the ruleset back to active.
+
+## Repo settings
+
+`allow_auto_merge` on each `[[repo]]` is applied like a ruleset: the dry run shows
+`plan     quirq-ai/<repo>: update setting allow_auto_merge = true (now false)` when GitHub differs,
+the same `yes` writes it (a PATCH of the repo), and a re-run shows it `unchanged`. With the merge
+queue on, auto-merge is how agent sessions put a PR in the queue (they have no GraphQL); it skips no
+required check or review. It is on in every repo but xo-space, where suraj lands PRs with his own
+"Merge when ready" (2026-10-04).
 
 ## Decisions for suraj (`TODO(suraj)` in `settings/github.toml`)
 
