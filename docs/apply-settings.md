@@ -205,9 +205,12 @@ App tokens); PRs already open get it on their next push. The org's plan does not
   workflows could make a same-named job pass. What stops that is review of `.github/`: toolchains
   requires suraj's code-owner review there (toolchains #14); xo-space and innernet do not yet.
 - toolchains' promotion gate is a repo required check (`promotion-gate`, on `pull_request` and
-  `merge_group` since toolchains #15). A PR could fake it only by editing `.github/` or `tools/`,
-  which need suraj's code-owner review; a push after his approval dismisses it
-  (`dismiss_stale_reviews_on_push`), so what lands is what he reviewed.
+  `merge_group` since toolchains #15). A PR's own workflows can fake it only by editing `.github/`,
+  which needs suraj's code-owner review; a push after his approval dismisses it
+  (`dismiss_stale_reviews_on_push`). Its tools come from main (or the queue base), so a `tools/`
+  edit cannot pass its own PR. Any GitHub Actions run with `checks: write`, such as one from a pushed
+  branch, could still post a passing `promotion-gate` (or `ci`); only a required workflow (an org
+  ruleset, paid plan) closes that.
 - rollers lands a Dependabot roll on its own only into a repo with a gate no workflow can fake (a
   pinned required workflow, or a check from an App other than GitHub Actions), so it stays off.
 

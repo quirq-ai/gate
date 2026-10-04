@@ -188,13 +188,15 @@ allow_auto_merge = true               # agents queue PRs with auto-merge; it ski
 kind = "infra"
 checks = ["ci", "promotion-gate"]    # ci aggregates unit; promotion-gate on pull_request and
                                      # merge_group since toolchains #15 (the org ruleset that ran it is
-                                     # off: Free plan). A PR could fake it only by editing .github/ or
-                                     # tools/, which need suraj's code-owner review (below).
+                                     # off: Free plan). A PR's own workflows can fake it only by editing
+                                     # .github/ (suraj's code-owner review, below); any Actions run with
+                                     # checks: write, e.g. from a pushed branch, could still post it,
+                                     # which only a required workflow (paid plan) closes.
 code_owner_review = true             # CODEOWNERS (toolchains #14, suraj): .github/, tools/, toolchains/,
                                      # toolchains.toml, promoted.toml
-# One PR per merge group, so a gate change lands on main (where the org ruleset runs
-# promotion-gate.yml from) before any promotion is judged, and toolchains' own merge_group run of the
-# merge result's copy never mixes a gate change with a promotion.
+# One PR per merge group, so a gate change lands on main before any promotion is judged: the
+# merge_group run of promotion-gate takes its tools from the queue base (promotion-gate.yml), so a
+# group never mixes a gate change with a promotion.
 queue_group_size = 1
 
 [[repo]]
