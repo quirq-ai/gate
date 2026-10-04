@@ -16,7 +16,8 @@
         In a merge_group job: when the change entered the queue, as RFC 3339 UTC. Inside GitHub
         Actions it also exports QQ_QUEUED_AT to GITHUB_ENV for the result sink. Exit 1, nothing
         exported, when only an approximate time is available.
-Exit codes: 0 ok or pass, 1 refused or not ready, 2 the gate could not decide.
+Exit codes: 0 ok or pass, 1 refused or not ready, 2 the gate could not decide, 3 (required,
+rule, verdict) the repo is not in repos.toml, so no gate applies (--json: {"onboarded": false}).
 """
 from __future__ import annotations
 
@@ -28,11 +29,14 @@ from pathlib import Path
 import os
 
 from qqgate import __version__, backends, config, guard, required, settings, verdict
-from qqgate.errors import GateError
+from qqgate.errors import GateError, NotOnboarded
 
 
 def _required(args) -> tuple[dict, required.RequiredSet]:
     cfg = config.load(Path(args.config), validate=not args.no_validate)
+    known = sorted(r["name"] for r in cfg["repos"]["repo"])
+    if args.repo not in known:  # before the manifest, so an unknown repo is always exit 3
+        raise NotOnboarded(args.repo, known)
     manifest = required.load_manifest(Path(args.manifest), cfg) if args.manifest else None
     req = required.compute(cfg, args.repo, manifest)
     problems = backends.load(req.backend).check_workflows(Path(args.config), req)
@@ -214,6 +218,11 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     try:
         return args.fn(args)
+    except NotOnboarded as e:
+        print(f"qqgate: {e}", file=sys.stderr)
+        if getattr(args, "json", False):
+            print(json.dumps({"repo": e.repo, "onboarded": False}, indent=2))
+        return 3
     except GateError as e:
         print(f"qqgate: {e}", file=sys.stderr)
         return 2
