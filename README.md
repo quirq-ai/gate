@@ -97,8 +97,9 @@ is one sample.
 | V0-GAT-01 | #2 | merged; live demo waits on V0-ORG-03, V0-ONB-01/02 |
 | V0-ORG-03 | #3 | merged; waits on suraj to apply ([docs/apply-settings.md](docs/apply-settings.md)) |
 | V0-GAT-02 | #4 | merged |
-| V0-GAT-03 | | waits on V0-GAT-01, V0-ORG-02 (suraj's owners) |
-| V0-GAT-04 | #6 | in review; numbers appear once the queue runs and the sink reads QQ_QUEUED_AT |
+| V0-GAT-03 | | waits on V0-ORG-02 (suraj's owners) |
+| V0-GAT-04 | #6 | merged; the sink reads QQ_QUEUED_AT (test-pipelines 1e3ddb1). Numbers appear once infra-config adds the timing step and the queue runs |
+| not-onboarded exit 3 (for depot) | #7 | merged |
 
 ## Known conflict
 
