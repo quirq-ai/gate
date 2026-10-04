@@ -49,20 +49,53 @@ targets = "product"
 # toolchains' promotion gate, always from main, so a PR cannot weaken or impersonate the gate that
 # decides what promoted.toml may say (toolchains audit; its gate.py handles this pull_request run).
 ruleset = "qq-toolchains-promotion-gate"
-enabled = true
+# Off until promotion-gate.yml stops using cancel-in-progress, which GitHub says a ruleset workflow
+# must not (a cancelled run blocks the PR until re-run); apply --org refuses it until then.
+enabled = false
 repository = "toolchains"
 path = ".github/workflows/promotion-gate.yml"
 ref = "refs/heads/main"
 targets = ["toolchains"]
+
+[[org_workflows]]
+# Each product repo's presubmit, run from infra-config at a pinned commit, so a PR (or a dependency
+# roll) cannot change the workflow that judges it. rollers' land check counts only a workflows rule
+# whose entries carry a 40-hex `sha` (rollers R-2). One ruleset per repo: the file names its repo.
+# apply --org checks the pinned file: on pull_request and merge_group, no path filter, no job that can
+# skip (the only job `if:` allowed is `github.repository == 'quirq-ai/<repo>'`) and no job or step
+# with continue-on-error. What the steps run is reviewed in infra-config at the pinned commit.
+# Off: the files at this sha use cancel-in-progress, which GitHub says a ruleset workflow must not;
+# infra-config regenerates them, then `sha` moves and both are enabled.
+# A builder change in infra-config reaches these only when `sha` moves here (a reviewed gate PR); a
+# renamed builder renames the file, so `path` changes with it.
+ruleset = "qq-xo-space-presubmit-pinned"
+enabled = false
+pinned = true                        # one target, named in the file; sha required to enable
+repository = "infra-config"
+path = ".github/workflows/qq-required-xo-space-presubmit.yml"
+ref = "refs/heads/main"
+sha = "c5e81c04998240dd08a29c4dc85a485944a44910"   # infra-config main at #17 (files from #15)
+targets = ["xo-space"]
+
+[[org_workflows]]
+ruleset = "qq-innernet-presubmit-pinned"
+enabled = false
+pinned = true
+repository = "infra-config"
+path = ".github/workflows/qq-required-innernet-presubmit.yml"
+ref = "refs/heads/main"
+sha = "c5e81c04998240dd08a29c4dc85a485944a44910"   # infra-config main at #17 (files from #15)
+targets = ["innernet"]
 
 # --- product repos (required checks from infra-config) ---------------------------------------
 
 [[repo]]
 name = "xo-space"
 kind = "product"
-# tests.yml's `tests` job stays required until xo-space's manifest targets cover route parity,
-# the install harnesses, plugin sync and the Space UI syntax check (pipelines.toml). V0-ONB-01 drops it.
-transitional_checks = ["tests"]
+# tests.yml's `tests` is no longer required: the generated xo-space-presubmit runs everything it ran
+# (through pytest; xo-space #214 audit), and V0-ONB-01 deletes tests.yml, which a required `tests`
+# would block.
+transitional_checks = []
 
 [[repo]]
 name = "innernet"
@@ -133,6 +166,9 @@ checks = ["presubmit", "measure-result"]
 name = "gardener"
 kind = "infra"
 checks = ["presubmit"]
+# The revert ledger (deleting it would reset the auto-revert cap) and the published tree status. Its
+# workflows push to them; the qq-state-branches ruleset blocks only deletion and force-push.
+state_branches = ["ledger", "tree-status"]
 
 [[repo]]
 name = "rollers"
@@ -143,6 +179,9 @@ checks = ["test"]
 name = "release"
 kind = "infra"
 checks = ["presubmit"]
+# channels.json and operation keys; same rules as gardener's. TODO(suraj): once the release executor
+# identity exists, restrict updates here to it (like qq-release-refs), not just deletion and force-push.
+state_branches = ["release-state"]
 
 [[repo]]
 name = "installer"

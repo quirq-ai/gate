@@ -15,6 +15,7 @@ qq-drift for product repos, promotion-gate for toolchains), plus owner review on
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import urllib.error
@@ -134,7 +135,7 @@ def _status_checks_rule(names) -> dict:
 
 
 def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_review: bool = False,
-             group_size: int = 5) -> list[dict]:
+             group_size: int = 5, state_branches: tuple[str, ...] = ()) -> list[dict]:
     """V0-ORG-03: the repository rulesets (REST: POST /repos/{o}/{r}/rulesets) for one repo."""
     main, refs = settings["main"], settings["release_refs"]
     method = main["merge_method"].upper()
@@ -173,6 +174,14 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
     bypass = [{"actor_id": i, "actor_type": "Integration", "bypass_mode": "always"}
               for i in refs["bypass_integration_ids"]]
     lock = [{"type": t} for t in ("creation", "update", "deletion", "non_fast_forward")]
+    state = []
+    if state_branches:
+        # A tool's own record branches (a ledger, a status feed): its bot keeps pushing to them, but
+        # nobody may delete or rewrite them, which would reset what they count.
+        state = [{"name": "qq-state-branches", "target": "branch", "enforcement": "active", "bypass_actors": [],
+                  "conditions": {"ref_name": {"include": [f"refs/heads/{b}" for b in state_branches],
+                                              "exclude": []}},
+                  "rules": [{"type": "deletion"}, {"type": "non_fast_forward"}]}]
     return [
         {"name": main["ruleset"], "target": "branch", "enforcement": "active", "bypass_actors": [],
          "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": rules},
@@ -182,13 +191,16 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
         {"name": refs["ruleset"] + "-tags", "target": "tag", "enforcement": "active", "bypass_actors": bypass,
          "conditions": {"ref_name": {"include": [f"refs/tags/{t}" for t in refs["tags"]], "exclude": []}},
          "rules": lock},
-    ]
+    ] + state
 
 
 def org_ruleset(workflow: dict, targets: list[str], repository_id: int) -> dict:
     """An org ruleset that runs `workflow["path"]` from `workflow["repository"]` at `workflow["ref"]`
-    on every PR and queue entry into the default branch of `targets`. `repository_id` is the source
-    repo's numeric GitHub id, looked up at apply time."""
+    (pinned to `workflow["sha"]` when set) on every PR and queue entry into the default branch of
+    `targets`. `repository_id` is the source repo's numeric GitHub id, looked up at apply time."""
+    entry = {"path": workflow["path"], "repository_id": repository_id, "ref": workflow["ref"]}
+    if "sha" in workflow:
+        entry["sha"] = workflow["sha"]
     return {
         "name": workflow["ruleset"], "target": "branch", "enforcement": "active", "bypass_actors": [],
         "conditions": {
@@ -197,14 +209,36 @@ def org_ruleset(workflow: dict, targets: list[str], repository_id: int) -> dict:
         },
         "rules": [{"type": "workflows", "parameters": {
             "do_not_enforce_on_create": False,
-            "workflows": [{"path": workflow["path"], "repository_id": repository_id, "ref": workflow["ref"]}],
+            "workflows": [entry],
         }}],
     }
 
 
 def apply_org(owner: str, workflow: dict, targets: list[str], token: str, write: bool):
     """Create or update one org ruleset by name. Yields a line after each write."""
-    repo_id = _send("GET", f"{API}/repos/{owner}/{workflow['repository']}", token)["id"]
+    src = f"{API}/repos/{owner}/{workflow['repository']}"
+    repo_id = _send("GET", src, token)["id"]
+    at = workflow["ref"]
+    if "sha" in workflow:
+        # The pinned commit must already be on the branch (reviewed and merged).
+        branch = workflow["ref"].removeprefix("refs/heads/")
+        # branch...sha: "behind" or "identical" means sha is an ancestor of the branch (empty diff).
+        cmp = _send("GET", f"{src}/compare/{urllib.parse.quote(branch, safe='')}...{workflow['sha']}", token)
+        if cmp.get("status") not in ("behind", "identical"):
+            raise GateError(f"org ruleset {workflow['ruleset']}: {workflow['sha']} is not on "
+                            f"{workflow['repository']} {branch} (compare status {cmp.get('status')!r})")
+        at = workflow["sha"]
+    # The file GitHub will run must be one it can run without blocking the targets.
+    path = urllib.parse.quote(workflow["path"])
+    doc = _send("GET", f"{src}/contents/{path}?ref={urllib.parse.quote(at, safe='')}", token)
+    if not isinstance(doc, dict) or doc.get("type") != "file" or doc.get("encoding") != "base64":
+        raise GateError(f"org ruleset {workflow['ruleset']}: {workflow['path']} at {at} is not a file")
+    from qqgate import settings as settings_mod  # settings loads backends; import late
+    text = base64.b64decode(doc.get("content", "")).decode("utf-8", errors="replace")
+    problems = (settings_mod.pinned_workflow_problems(text, f"{owner}/{targets[0]}") if workflow.get("pinned")
+                else settings_mod.ruleset_workflow_problems(text))
+    if problems:
+        raise GateError(f"org ruleset {workflow['ruleset']}: {workflow['path']} at {at[:12]}: " + "; ".join(problems))
     rs = org_ruleset(workflow, targets, repo_id)
     base = f"{API}/orgs/{owner}/rulesets"
     existing = {r["name"]: r["id"] for r in _send("GET", f"{base}?per_page=100", token)}

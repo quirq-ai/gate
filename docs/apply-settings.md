@@ -53,7 +53,9 @@ What the run does and does not do:
 - Each write is printed as soon as it succeeds. If one fails, the run stops with `FAILED`, says
   every line above it is already live and lists the repos it did not attempt. Re-running is safe:
   rulesets are created or updated by name, never deleted.
-- It never touches rulesets or protection it did not create.
+- It never touches rulesets or protection it did not create, and never deletes one: a ruleset
+  dropped from `settings/github.toml` (for example a repo's `state_branches` emptied) stays live
+  until an admin deletes it in Settings > Rules.
 
 Each ready repo gets:
 
@@ -65,6 +67,9 @@ Each ready repo gets:
 - `qq-release-refs-branches` and `qq-release-refs-tags`: `lkgr` and `channels/**` cannot be created,
   moved or deleted except by the release executor. Its identity is not decided yet, so today nobody
   can write them.
+- `qq-state-branches`, only where `state_branches` names some (gardener `ledger` and `tree-status`,
+  release `release-state`): those branches cannot be deleted or force-pushed. Their bots still push
+  to them normally.
 
 `verify` (and so `apply`) refuses a repo when:
 
@@ -79,12 +84,9 @@ Each ready repo gets:
   `!` patterns) or type filter that leaves out PRs into the default branch, `merge_group` types
   without `checks_requested`, or a name used by two jobs.
 
-What blocks which repo today (from `settings verify` on fresh clones, 2026-10-04 13:45 UTC):
+What blocks which repo today (from `settings verify` on fresh clones, 2026-10-04 14:05 UTC):
 
-- xo-space: xo-space #212 (`merge_group` on `tests.yml`, whose `tests` check stays required until
-  V0-ONB-01 retires it).
-- installer: no commits yet.
-- Every other repo: ready. `verify` prints each repo's commit, so a repo that moves between your
+- Every repo: ready. `verify` prints each repo's commit, so a repo that moves between your
   clone and the run shows as not ready; clone again and re-run.
 
 ## Org rulesets (optional, separate, needs `admin:org`)
@@ -92,10 +94,38 @@ What blocks which repo today (from `settings verify` on fresh clones, 2026-10-04
 `settings/github.toml` `[[org_workflows]]` lists org rulesets that run a workflow from another
 repo's `main` on every PR and queue entry, so a PR cannot satisfy them with its own same-named job:
 
-- `qq-toolchains-promotion-gate` (enabled): toolchains' `promotion-gate.yml` in toolchains.
+- `qq-toolchains-promotion-gate` (off for now): toolchains' `promotion-gate.yml` in toolchains. It
+  stays off until that file drops `cancel-in-progress`.
+- `qq-xo-space-presubmit-pinned` and `qq-innernet-presubmit-pinned` (off for now): each product repo's
+  presubmit, run from infra-config's `.github/workflows/qq-required-<repo>-presubmit.yml` at a pinned
+  commit (`sha`), so neither a PR nor a dependency roll can change the workflow that judges it.
+  rollers auto-lands only into a repo that has one. They stay off until infra-config's files drop
+  `cancel-in-progress` (GitHub: a ruleset workflow must not use it); then `sha` moves and they are
+  enabled.
+  `apply --org` checks that the pinned commit is on
+  infra-config's `main` and that the file there runs on `pull_request` and `merge_group` with no path
+  filter, no job that can skip (the only job `if:` allowed is the repository guard) and no job or step
+  with `continue-on-error`, and no `cancel-in-progress`. What the steps run is reviewed in infra-config at the pinned commit.
+  The pin fixes the workflow file, not the code it runs: a PR can still change the repo's tests or
+  scripts. Owner review of those paths is V0-GAT-03, which waits on owners (ORG-02).
 - `qq-drift` (off): infra-config's `qq-drift.yml` in the product repos. It stays off until
   infra-config's `qq-drift.yml` only checks the default branch against a pinned config; turning it on
   is a reviewed one-line change.
+
+How GitHub runs these (docs: "Available rules for rulesets", "Troubleshooting rules"):
+
+- A workflow in a public repo (infra-config, toolchains) can run in any repo of the org; a private
+  one would also need its Actions access setting opened.
+- It runs on `pull_request` (opened, synchronize, reopened) and `merge_group`, and GitHub ignores
+  the workflow's own `branches`, `paths` and `types` filters.
+- It does not run for a PR opened or updated by a workflow's `GITHUB_TOKEN`; such a PR waits until
+  someone or an App token pushes to it. qq's bots open PRs with their own App tokens.
+- PRs already open when the ruleset is created get it on their next push.
+
+`apply --org` reads each enabled entry's file (at its `sha`, or its branch) and refuses one that does
+not run on `merge_group` and a pull request event, or that cancels in progress.
+
+Today every entry is off (see above), so `--org` has nothing to apply yet and says so.
 
 Applying them is a second run, after the repo rulesets: `gh auth refresh -s admin:org`, then the
 same `apply` command with `--org` added (dry run first). An org ruleset only targets repos that are

@@ -49,8 +49,9 @@ qqgate verdict  --config ../infra-config --repo xo-space --sha <commit>   # or -
 ```
 
 Today: `xo-space` requires `xo-space-presubmit`, `innernet` requires `innernet-presubmit`.
-xo-space's hand-written `tests` check stays required alongside it until its manifest targets cover
-route parity and the install harnesses (pipelines.toml); V0-ORG-03 lists it as transitional.
+xo-space's hand-written `tests` check is not required: the generated presubmit runs everything it
+ran, and V0-ONB-01 deletes `tests.yml`. `transitional_checks` in `settings/github.toml` can still add
+a hand-written check after the generated ones.
 
 "A red PR is refused" has two halves. CI here proves the gate's half: a red check on either repo
 gives a refusal. The live half needs the generated workflows delivered (xo-space #211, innernet
@@ -98,7 +99,7 @@ is one sample.
 | --- | --- | --- |
 | bootstrap | #1 | merged |
 | V0-GAT-01 | #2 | merged; live demo waits on V0-ORG-03, V0-ONB-01/02 |
-| V0-ORG-03 | #3, #5, #9 | merged; audit fixes in #9; waits on suraj to apply ([docs/apply-settings.md](docs/apply-settings.md)) |
+| V0-ORG-03 | #3, #5, #9, #10 | merged; waits on suraj to apply ([docs/apply-settings.md](docs/apply-settings.md)). Pinned product presubmit org rulesets wait on infra-config dropping cancel-in-progress |
 | V0-GAT-02 | #4 | merged |
 | V0-GAT-03 | | waits on V0-ORG-02 (suraj's owners) |
 | V0-GAT-04 | #6 | merged; the sink reads QQ_QUEUED_AT (test-pipelines 1e3ddb1). Numbers appear once infra-config adds the timing step and the queue runs |
