@@ -1,1 +1,21 @@
-# Owners are assigned by suraj (V0-ORG-02). Leave this file without owner lines until then.
+# Owners for quirq-ai/gate (V0-ORG-02), named by suraj. Only the paths that set policy or
+# that a gate or workflow trusts are owned; there is no catch-all, so other changes merge on
+# green CI and review alone. Owner names are suraj's call: never change them.
+# workflows and this file
+/.github/                @sharmasuraj0123
+# other qq repos pinned by commit
+/pins.toml               @sharmasuraj0123
+# sync pinned by commit
+/pyproject.toml          @sharmasuraj0123
+# what scripts/apply.sh installs
+/apply-requirements.txt  @sharmasuraj0123
+# apply.sh, which an org admin runs
+/scripts/                @sharmasuraj0123
+# rulesets and org workflows it applies
+/settings/               @sharmasuraj0123
+# guard terms
+/guard/                  @sharmasuraj0123
+# timing action other repos' CI runs
+/timing/                 @sharmasuraj0123
+# the qqgate code apply.sh runs with the admin token
+/src/                    @sharmasuraj0123
