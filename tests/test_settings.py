@@ -163,3 +163,15 @@ def test_existing_protection_is_reported(monkeypatch):
     monkeypatch.setattr(github, "_send", fake)
     lines = github.existing_protection("quirq-ai", "gate", {"qq-main"}, "t")
     assert "old-ci" in lines[0] and "legacy" in lines[1]
+
+
+def test_org_ruleset_is_off_until_enabled(config_root, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("QQ_GITHUB_TOKEN", "t")
+    monkeypatch.setattr(github, "existing_protection", lambda *a: [])
+    monkeypatch.setattr(github, "apply", lambda *a, **k: [])
+    called = []
+    monkeypatch.setattr(github, "apply_org", lambda *a, **k: called.append(1) or [])
+    _checkout(tmp_path, "sync", "on: [pull_request, merge_group]\njobs:\n  test:\n    runs-on: x\n")
+    assert main(["settings", "apply", "--config", str(config_root), "--repo", "sync",
+                 "--checkouts", str(tmp_path), "--org"]) == 2
+    assert called == [] and "enabled = false" in capsys.readouterr().err
