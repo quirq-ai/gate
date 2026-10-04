@@ -103,6 +103,8 @@ repo's `main` on every PR and queue entry, so a PR cannot satisfy them with its 
   infra-config's `main` and that the file there runs on `pull_request` and `merge_group` with no path
   filter, no job that can skip (the only job `if:` allowed is the repository guard) and no job or step
   with `continue-on-error`. What the steps run is reviewed in infra-config at the pinned commit.
+  The pin fixes the workflow file, not the code it runs: a PR can still change the repo's tests or
+  scripts. Owner review of those paths is V0-GAT-03, which waits on owners (ORG-02).
 - `qq-drift` (off): infra-config's `qq-drift.yml` in the product repos. It stays off until
   infra-config's `qq-drift.yml` only checks the default branch against a pinned config; turning it on
   is a reviewed one-line change.
