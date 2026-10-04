@@ -239,17 +239,21 @@ def cmd_settings(args) -> int:
     if not args.checkouts:
         raise GateError(f"settings {args.action} needs --checkouts DIR with each repo's default branch")
     if args.action == "verify":
-        cfg, backend, s, plans = _plans(args)
         stale = _config_at_pin(Path(args.config))
         if stale:
             print(f"WARNING  {stale}", flush=True)
+        # Like apply, infra-config's code runs only in the credential-free child (review of #13:
+        # verify runs in the admin's own environment, with gh's login in reach).
+        s = settings.load_settings("github")
+        data = _plan_without_token(args)
+        s, _, plans, org = _trusted_plans(data, args.repo, s, Path(args.config))
         ready, heads = _ready(plans, args.checkouts, s)
         _print_ready(plans, ready, heads)
         org_bad = 0
-        for w in settings.org_workflows(s, cfg):
+        for w in org:
             if not w.get("enabled", False):
                 continue
-            why = settings.org_workflow_readiness(w, Path(args.checkouts), cfg["gate"]["admission"]["max_minutes"],
+            why = settings.org_workflow_readiness(w, Path(args.checkouts), data["(gate)"]["max_minutes"],
                                                   s["org"]["owner"])
             org_bad += bool(why)
             print(f"{'ready    ' if not why else 'NOT READY'} org {w['ruleset']}", flush=True)

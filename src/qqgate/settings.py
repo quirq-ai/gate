@@ -152,13 +152,25 @@ def workflow_jobs(checkout: Path) -> dict[str, Job]:
             if mg:
                 j.mg_filters.append(mg)
             text = json.dumps(job, default=str)
-            j.reads_needs = j.reads_needs or bool(NEEDS_RESULT.search(text) and "success" in text)
+            # A text test, not a proof: real aggregators judge results in many shapes (jq over
+            # toJSON(needs.*.result), a shell test, an expression), so the job must read a result
+            # and mention success, or look for failure among them. What it does with them is
+            # reviewed in its own repo.
+            j.reads_needs = j.reads_needs or bool(NEEDS_CHECKED.search(text) or (
+                NEEDS_RESULT.search(text) and "success" in text))
             j.continue_on_error = j.continue_on_error or job.get("continue-on-error") not in (None, False)
             j.environment = j.environment or "environment" in job
     return jobs
 
 
 NEEDS_RESULT = re.compile(r"needs\.(\*|[\w-]+)\.result")
+# An always() aggregator that looks for failure/cancelled among its needs' results, without
+# naming success.
+_Q = r"""(?:\\?["'])?"""
+NEEDS_CHECKED = re.compile(
+    r"needs\.(?:\*|[\w-]+)\.result\s*(?:\}\})?" + _Q + r"\s*(?:==|!=|=)\s*" + _Q + r"success\b"
+    r"|\bsuccess" + _Q + r"\s*(?:==|!=|=)\s*" + _Q + r"(?:\$\{\{\s*)?needs\.(?:\*|[\w-]+)\.result"
+    r"|contains\(\s*needs\.\*\.result\s*,\s*" + _Q + r"(?:failure|cancelled)")
 
 
 def _is_always(condition: str) -> bool:
@@ -260,7 +272,8 @@ def readiness(plan: RepoPlan, checkout: Path, allow_conditional: tuple[str, ...]
         always = _is_always(j.condition)
         if j.needs and always and not j.reads_needs:
             out.append(f"required check {c!r} runs after {', '.join(j.needs)} with `if: always()` but never "
-                       "compares needs.<job>.result with success, so it can pass when they fail")
+                       "compares needs.<job>.result with success (or checks needs.*.result for failure), so it can "
+                       "pass when they fail")
         if j.needs and not always:
             out.append(f"required check {c!r} needs {', '.join(j.needs)} without exactly `if: always()`: a "
                        "failed dependency skips it, and GitHub counts a skipped required check as passing")

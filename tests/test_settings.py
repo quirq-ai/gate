@@ -781,3 +781,35 @@ def test_org_entry_whose_file_is_not_ready_is_skipped_and_fails_the_run(apply_en
     apply_env.setattr(github, "plan_org", lambda *a: pytest.fail("plan_org called for a skipped entry"))
     assert main(_apply_args(config_root, tmp_path, "toolchains", extra=["--org"])) == 1
     assert "skip     org ruleset qq-toolchains-promotion-gate: has cancel-in-progress" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("step,ok", [
+    ('test "${{ needs.build.result }}" = success', True),
+    ("echo ${{ needs.build.result == 'success' }}", True),
+    ("echo ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}", True),
+    ('echo "${{ toJSON(needs.*.result) }}" | jq -e \'all(. == "success")\'', True),
+    ("echo ${{ needs.build.result }}", False),
+])
+def test_always_aggregator_must_judge_its_needs(s, cfg, config_root, tmp_path, step, ok):
+    """Review of #13: an aggregator that only looks for failure is judged too (toolchains' ci
+    job reads toJSON(needs.*.result) with jq, which no comparison regex sees)."""
+    plan = plans_by_name(s, cfg, config_root)["sync"]
+    co = _checkout(tmp_path, "x", "on: [pull_request, merge_group]\njobs:\n  build:\n    runs-on: x\n"
+                   "  test:\n    needs: build\n    if: always()\n    runs-on: x\n    steps:\n"
+                   f"      - run: {json.dumps(step)}\n")
+    assert (settings.readiness(plan, co) == []) is ok
+
+
+def test_verify_runs_infra_config_code_only_in_the_child(apply_env, config_root, tmp_path, capsys):
+    """Review of #13: verify, like apply, never loads infra-config in the admin's process."""
+    from qqgate import cli, config
+    apply_env.setattr(cli, "_plan_without_token", REAL_PLAN)
+
+    def forbidden(*a, **k):
+        raise AssertionError("verify loaded infra-config in the admin's process")
+    apply_env.setattr(config, "load", forbidden)
+    apply_env.setattr(config, "qqcfg_module", forbidden)
+    args = _apply_args(config_root, tmp_path, "sync")
+    args[1] = "verify"
+    assert main(args) == 0
+    assert "ready     sync" in capsys.readouterr().out

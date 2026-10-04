@@ -33,8 +33,9 @@ git clone -q https://github.com/quirq-ai/gate qq-gate && cd qq-gate && git check
    `unchanged` and are not written again.
 
 Nothing is written before a `yes`. Exit 0 means everything is applied; 1 means something was not
-ready, skipped or refused (the output says what; fix it and run the command again); 2 means an error
-stopped it. Re-running is always safe.
+ready, skipped or refused, or you answered something other than `yes` (the output says what; fix it
+and run the command again); 2 means an error stopped it. The script refuses to start while
+`GH_TOKEN` or `GITHUB_TOKEN` is set, since the org step refreshes gh's stored login. Re-running is always safe.
 
 The script calls `qqgate settings verify` and `qqgate settings apply` (`--yes`, `--accept-warnings`,
 `--overwrite`, `--org`); each refuses on its own what the script asks about, so running them by hand
@@ -45,7 +46,7 @@ is no less safe.
 - It only writes repos that are ready, and skips the rest with the reason.
 - Every request goes to `https://api.github.com`. A redirect is refused rather than followed, so
   the token cannot reach another host (a renamed repo stops the run with an error instead).
-- The plan is computed in a child process whose environment holds only `PATH`, locale and temp
+- The plan (for `verify` as well as `apply`) is computed in a child process whose environment holds only `PATH`, locale and temp
   settings, with an empty `HOME`: no token, SSH agent, netrc, `gh` or git config. Only that child
   runs infra-config's code, and the token is read from `gh` after it has exited (a same-user process
   can read its parent's environment). If `QQ_GITHUB_TOKEN` is set anyway, qqgate uses it and warns.
@@ -54,7 +55,8 @@ is no less safe.
   child starts (and refuses if it changes), takes only product repos' required check names and two
   gate.toml numbers from the child, checks that each name is a job in a workflow the pinned
   infra-config generates and that transitional checks come last, and builds every ruleset itself.
-- Every GET happens before the first write. The dry run prints a `plan` line per ruleset (`create`,
+- Within one `qqgate settings apply`, every GET happens before the first write (the script's org
+  run is a second invocation, after the repo writes). The dry run prints a `plan` line per ruleset (`create`,
   `update` with the fields that differ, or `unchanged`) and a `WARNING` for classic branch protection
   or other rulesets already on a repo (they stack with ours: remove them, or check their required
   checks run on `merge_group`) and for a repo with squash merging turned off.
@@ -124,11 +126,11 @@ one on or off is a reviewed change to that file, after which the same command ap
 - `qq-drift` (off): infra-config's `qq-drift.yml` in the product repos. Waits on that file only checking
   the default branch against a pinned config.
 
-`verify` and `apply --org` both read each enabled entry's file (from the fresh clone, at its `sha`,
-and again through the API) and refuse it unless it runs on `merge_group` and a pull request event,
+`verify` (from the fresh clone, at its `sha`) and `apply --org` (again, through the API) both read
+each enabled entry's file and refuse it unless it runs on `merge_group` and a pull request event,
 never cancels in progress, and every job has a `timeout-minutes` within gate.toml's 40-minute
-admission limit (the queue drops an entry whose check has not reported by then). A pinned entry's
-commit must be on infra-config's `main`, and its file may have no path filter, no job that can skip
+admission limit (the queue drops an entry whose check has not reported by then). `apply --org` also
+checks that a pinned entry's commit is on infra-config's `main`. A pinned entry's file may have no path filter, no job that can skip
 (the only job `if:` allowed is the repository guard), and no job or step `continue-on-error`.
 
 An org ruleset targets only repos that are ready in that run, and keeps targets an earlier run
