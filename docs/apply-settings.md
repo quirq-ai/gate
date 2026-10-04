@@ -11,18 +11,20 @@ python3 -m venv .venv && .venv/bin/pip install -e .
 mkdir -p .qq/repos && for r in $(python3 -c "import tomllib;print(' '.join(r['name'] for r in tomllib.load(open('settings/github.toml','rb'))['repo']))"); do
   git clone --depth 1 "https://github.com/quirq-ai/$r" ".qq/repos/$r"; done
 
-gh auth refresh -s admin:org   # the org ruleset (--org) needs admin:org; repo rulesets need repo admin
 .venv/bin/qqgate settings verify --config .qq/infra-config --checkouts .qq/repos     # which repos are ready
-QQ_GITHUB_TOKEN=$(gh auth token) .venv/bin/qqgate settings apply --config .qq/infra-config --checkouts .qq/repos --org         # dry run
-QQ_GITHUB_TOKEN=$(gh auth token) .venv/bin/qqgate settings apply --config .qq/infra-config --checkouts .qq/repos --org --yes   # write
+QQ_GITHUB_TOKEN=$(gh auth token) .venv/bin/qqgate settings apply --config .qq/infra-config --checkouts .qq/repos         # dry run
+QQ_GITHUB_TOKEN=$(gh auth token) .venv/bin/qqgate settings apply --config .qq/infra-config --checkouts .qq/repos --yes   # write
 ```
 
 Apply only writes repos that are ready, so it is safe to re-run as more repos get ready; it exits 1
 while any repo is not ready, even after writing the ready ones. The dry run also prints a WARNING for
 classic branch protection or other rulesets already on a repo: those stack with ours, so remove them
-or check their required checks run on `merge_group`. The org ruleset goes last and on its own; if it
-fails (missing `admin:org`, or the org's plan does not offer "Require workflows to pass before
-merging" — TODO(suraj): confirm the plan), the repo rulesets are already written. Each repo gets:
+or check their required checks run on `merge_group`. The org ruleset is not part of this run: it stays
+off (`enabled = false` in `settings/github.toml`) until infra-config's `qq-drift.yml` only checks the
+default branch and compares against a pinned config. When it is turned on, run `gh auth refresh -s
+admin:org` and add `--org`; it goes last, so if it fails (no `admin:org`, or the org's plan lacks
+"Require workflows to pass before merging", TODO(suraj): confirm the plan) the repo rulesets are
+already written. Each repo gets:
 
 - `qq-main` on the default branch: pull request required, merge queue (squash, all-green grouping,
   verdict timeout = gate.toml's 40-minute admission limit), the required checks, no force push, no
@@ -30,7 +32,7 @@ merging" — TODO(suraj): confirm the plan), the repo rulesets are already writt
 - `qq-release-refs-branches` and `qq-release-refs-tags`: `lkgr` and `channels/**` cannot be created,
   moved or deleted except by the release executor. Its identity is not decided yet, so today nobody
   can write them.
-- With `--org`: the org ruleset `qq-drift`, running infra-config's `qq-drift.yml` from `main` in every
+- Later, with `--org`: the org ruleset `qq-drift`, running infra-config's `qq-drift.yml` from `main` in every
   product repo (xo-space, innernet).
 
 What blocks which repo (from `settings verify`, 2026-10-04):

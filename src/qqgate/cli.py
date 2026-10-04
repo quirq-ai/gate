@@ -123,6 +123,9 @@ def cmd_settings(args) -> int:
         for line in mod.apply(s["org"]["owner"], p.name, list(p.rulesets), token, write=args.yes):
             print(line)
     # Last, and on its own: an org ruleset needs admin:org and a plan that offers required workflows.
+    if args.org and not s["org_workflows"].get("enabled", False):
+        print("qqgate: org ruleset not applied: settings [org_workflows] enabled = false", file=sys.stderr)
+        return 2
     if args.org:
         try:
             for line in mod.apply_org(s["org"]["owner"], s, cfg, token, write=args.yes):
@@ -169,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--repo", action="append", help="limit to these repos (repeatable)")
     st.add_argument("--checkouts", help="directory holding a default-branch checkout of each repo, by name")
     st.add_argument("--yes", action="store_true", help="apply: really write (default is a dry run)")
-    st.add_argument("--org", action="store_true", help="apply: also the org ruleset (qq-drift workflow)")
+    st.add_argument("--org", action="store_true", help="apply: also the org ruleset (qq-drift workflow), once settings enable it")
     st.add_argument("--no-validate", action="store_true", help="skip qqcfg validate (tests only)")
     gd = sub.add_parser("guard", help="agnosticism guard for a core repo (V0-GAT-02)")
     gd.set_defaults(fn=cmd_guard)
