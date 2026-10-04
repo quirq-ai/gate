@@ -82,6 +82,12 @@ why = "The usage line names how qq's own module is started (python -m qqdepot.wa
 
 [[allow]]
 repo = "sync"
+path = "src/qqsync/guard.py"
+term = "*"
+why = "The no-other-parser check must recognise TOML imports in every language a product repo uses."
+
+[[allow]]
+repo = "sync"
 path = "src/qqsync/manifest.py"
 term = "python"
 why = "Docstring: the manifest as plain Python data, i.e. qqsync's own return type."
