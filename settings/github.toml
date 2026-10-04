@@ -1,0 +1,123 @@
+# V0-ORG-03: merge queue and rulesets as code. suraj applies them (admin); `qqgate settings apply`.
+# Product repos' required checks are computed from infra-config (V0-GAT-01) and are not listed here.
+# Infra repos are not in pipelines.toml yet, so their hand-written required checks are listed below.
+# TODO(expert): move infra repos' builders into infra-config pipelines.toml and compute them too.
+# `qqgate settings verify` (CI) fails if a listed check is not a job that runs on pull_request and
+# merge_group in that repo's default branch, so a typo can never block every PR.
+
+[org]
+owner = "quirq-ai"
+
+[main]
+# One ruleset on the default branch of every repo below.
+ruleset = "qq-main"
+merge_method = "squash"                  # gate.toml [merge_queue]; TODO(suraj): confirm squash for every repo
+required_approvals = 0                   # code-owner review on the verification surface is V0-GAT-03
+# Nobody bypasses the gate: no agent, and no admin. TODO(suraj): add an admin bypass only if you want a
+# break-glass path; it would be a policy change.
+bypass = []
+
+[release_refs]
+# lkgr and channels/* are written only by the release executor (V0-REL-01, V0-REL-02).
+ruleset = "qq-release-refs"
+branches = ["lkgr", "channels/**"]
+tags = ["lkgr", "channels/**"]
+# TODO(suraj): the release executor's identity (a GitHub App id, ideally the agent bot from the
+# open identity question). Until it exists nobody can create, move or delete these refs.
+bypass_integration_ids = []
+
+[org_workflows]
+# One organization ruleset: "Require workflows to pass before merging", running infra-config's
+# qq-drift.yml from main in every product repo, so a PR cannot hand-edit, rename or delete a
+# generated qq-*.yml stub (V0-CFG-02). The product repo list comes from infra-config repos.toml.
+ruleset = "qq-drift"
+repository = "infra-config"
+path = ".github/workflows/qq-drift.yml"
+ref = "refs/heads/main"
+
+# --- product repos (required checks from infra-config) ---------------------------------------
+
+[[repo]]
+name = "xo-space"
+kind = "product"
+# tests.yml's `tests` job stays required until xo-space's manifest targets cover route parity,
+# the install harnesses, plugin sync and the Space UI syntax check (pipelines.toml). V0-ONB-01 drops it.
+transitional_checks = ["tests"]
+
+[[repo]]
+name = "innernet"
+kind = "product"
+transitional_checks = []
+
+# --- infra repos (hand-written presubmits, read from each repo's workflows on 2026-10-04) --------
+
+[[repo]]
+name = "infra-config"
+kind = "infra"
+checks = ["validate"]                # qq-drift skips itself here; it is the org workflow below
+
+[[repo]]
+name = "depot"
+kind = "infra"
+# `parity` is a matrix; parity-compare aggregates it but needs `if: always()` and a check that every
+# leg succeeded, or a failed leg skips it and GitHub counts the skip as a pass. Asked of depot.
+checks = ["test", "parity-compare"]
+
+[[repo]]
+name = "sync"
+kind = "infra"
+checks = ["test"]
+
+[[repo]]
+name = "recipes"
+kind = "infra"
+checks = ["presubmit"]
+
+[[repo]]
+name = "test-pipelines"
+kind = "infra"
+checks = ["presubmit"]
+
+[[repo]]
+name = "gate"
+kind = "infra"
+checks = ["presubmit"]
+
+[[repo]]
+name = "toolchains"
+kind = "infra"
+checks = ["ci"]                      # aggregates unit and promotions
+
+[[repo]]
+name = "remote-build"
+kind = "infra"
+checks = ["presubmit", "cross-backend"]
+# cross-backend skips on fork PRs, which have no token to dispatch the GitHub backend; the merge
+# queue (same repo) always runs it, so the skip cannot land a red change.
+allow_conditional = ["cross-backend"]
+
+[[repo]]
+name = "perf"
+kind = "infra"
+checks = ["presubmit", "build-size"]
+
+# No presubmit yet: the ruleset still forces PRs through the queue; add the check when one lands.
+[[repo]]
+name = "gardener"
+kind = "infra"
+checks = []
+
+[[repo]]
+name = "rollers"
+kind = "infra"
+checks = []
+
+[[repo]]
+name = "release"
+kind = "infra"
+checks = []
+
+[[repo]]
+name = "installer"
+kind = "infra"
+checks = []

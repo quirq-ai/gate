@@ -55,13 +55,21 @@ route parity and the install harnesses (pipelines.toml); V0-ORG-03 lists it as t
 gives a refusal. The live half needs the generated workflows delivered (xo-space #211, innernet
 #37), the rulesets applied (V0-ORG-03, suraj) and the manifests (V0-ONB-01/02).
 
+## Merge queue and rulesets (V0-ORG-03)
+
+`settings/github.toml` is the merge queue and rulesets as code, for all thirteen infra repos and
+both product repos. `qqgate settings plan` prints them, `verify` says which repos are safe to switch
+on today (every required check must run on `pull_request` and `merge_group` there), and `apply`
+creates or updates them by name for ready repos only. An org admin runs `apply`; see
+[docs/apply-settings.md](docs/apply-settings.md).
+
 ## v0 status
 
 | Item | PR | State |
 | --- | --- | --- |
 | bootstrap | #1 | merged |
-| V0-GAT-01 | #2 | in review; live demo waits on V0-ORG-03, V0-ONB-01/02 |
-| V0-ORG-03 | | waits on V0-GAT-01 |
+| V0-GAT-01 | #2 | merged; live demo waits on V0-ORG-03, V0-ONB-01/02 |
+| V0-ORG-03 | #3 | in review; suraj applies ([docs/apply-settings.md](docs/apply-settings.md)) |
 | V0-GAT-02 | | waits on V0-GAT-01 |
 | V0-GAT-03 | | waits on V0-GAT-01, V0-ORG-02 (suraj's owners) |
 | V0-GAT-04 | | waits on V0-TST-02 (test-pipelines) |

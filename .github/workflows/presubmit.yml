@@ -44,3 +44,43 @@ jobs:
             [ "$rc" -eq 1 ] && python -c "import json,sys; sys.exit(json.load(open(sys.argv[1]))['verdict'] != 'refused')" "$RUNNER_TEMP/v.json" \
               || { echo "::error::$repo: a red PR was not refused (exit $rc)"; exit 1; }
           done
+      - name: rulesets as code build for every repo (V0-ORG-03)
+        run: qqgate settings plan --config .qq/infra-config > /dev/null
+  # Not a required check: it reads other repos' default branches, which change outside this repo.
+  # It goes red when a required check listed in settings/github.toml stops running on pull_request
+  # and merge_group in an infra repo, so the settings get fixed before anyone applies them.
+  settings-drift:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: read the infra-config pin
+        id: pin
+        run: python -c "import tomllib; print('commit=' + tomllib.load(open('pins.toml', 'rb'))['infra-config']['commit'])" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        with:
+          repository: quirq-ai/infra-config
+          ref: ${{ steps.pin.outputs.commit }}
+          path: .qq/infra-config
+          persist-credentials: false
+      - run: python -m pip install --quiet -e .
+      - name: clone every repo's default branch (public, read-only)
+        run: |
+          for r in $(python -c "import tomllib; print(' '.join(r['name'] for r in tomllib.load(open('settings/github.toml','rb'))['repo']))"); do
+            git clone --quiet --depth 1 "https://github.com/quirq-ai/$r" ".qq/repos/$r"
+          done
+      - name: which repos are safe to apply today
+        run: |
+          infra=$(python -c "import tomllib; print(' '.join('--repo ' + r['name'] for r in tomllib.load(open('settings/github.toml','rb'))['repo'] if r['kind'] == 'infra'))")
+          qqgate settings verify --config .qq/infra-config --checkouts .qq/repos || true
+          # Drift (a listed check gone or no longer on the queue's events) fails this job; other
+          # not-ready reasons are follow-ups owned by that repo and show above.
+          qqgate settings verify --config .qq/infra-config --checkouts .qq/repos $infra > "$RUNNER_TEMP/v.txt" || true
+          if grep -E "is not a job|does not run on" "$RUNNER_TEMP/v.txt"; then
+            echo "::error::settings/github.toml has drifted from an infra repo's workflows"; exit 1
+          fi
