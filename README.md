@@ -48,7 +48,7 @@ qqgate rule     --config ../infra-config --repo xo-space          # ruleset rule
 qqgate verdict  --config ../infra-config --repo xo-space --sha <commit>   # or --observed checks.json
 ```
 
-Today: `xo-space` requires `xo-space-presubmit`, `innernet` requires `innernet-presubmit`.
+Today: `xo-space` requires `xo-space-presubmit`, `innernet` requires `innernet-presubmit`, `website` requires `website-presubmit`.
 xo-space's hand-written `tests` check is not required: the generated presubmit runs everything it
 ran, and V0-ONB-01 deletes `tests.yml`. `transitional_checks` in `settings/github.toml` can still add
 a hand-written check after the generated ones.

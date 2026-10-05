@@ -134,6 +134,13 @@ transitional_checks = []
 # allow. Turning them on is this one line, in a reviewed gate PR.
 dependabot_branches = false
 
+[[repo]]
+name = "website"
+allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
+kind = "product"
+transitional_checks = []
+dependabot_branches = false           # no Dependabot roller for website yet (infra-config rollers.toml)
+
 # --- infra repos (hand-written presubmits, read from each repo's workflows on 2026-10-04) --------
 
 [[repo]]

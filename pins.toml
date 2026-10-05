@@ -3,7 +3,7 @@
 
 [infra-config]
 source = "https://github.com/quirq-ai/infra-config"
-commit = "12c1f4fb789942f73d8351e948804f6385460e7b"   # V0-CFG-02 (#3) on main
+commit = "41a8cb0a19e4f12ecb0d6407ba1155cd42c498ad"   # #31 onboards website, #32 on main
 
 [sync]
 source = "https://github.com/quirq-ai/sync"

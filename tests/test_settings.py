@@ -214,7 +214,7 @@ def test_plan_prints_json(config_root, capsys):
 
 def test_org_rulesets_run_a_workflow_from_another_repos_main(s, cfg):
     org = {w["ruleset"]: w for w in settings.org_workflows(s, cfg)}
-    assert org["qq-drift"]["targets"] == ["innernet", "xo-space"] and org["qq-drift"]["enabled"] is False
+    assert org["qq-drift"]["targets"] == ["innernet", "website", "xo-space"] and org["qq-drift"]["enabled"] is False
     tc = org["qq-toolchains-promotion-gate"]
     assert tc["targets"] == ["toolchains"] and tc["enabled"] is False   # Free plan (suraj, 2026-10-04)
     rs = github.org_ruleset(tc, ["toolchains"], repository_id=42)
