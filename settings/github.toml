@@ -246,9 +246,8 @@ name = "release"
 allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "infra"
 checks = ["presubmit"]
-code_owner_review = true             # CODEOWNERS (release #14, suraj): .github/, src/, pins.toml,
-                                     # pyproject.toml. The executor's key reaches only workflows on
-                                     # main, so a change there needs suraj's review (canary-app audit S5).
+# No code_owner_review: suraj chose a fully autonomous release on 2026-10-05 (he reverts what he
+# dislikes). So any green PR can land a workflow on main that uses the executor App's key.
 # channels.json and operation keys; same rules as gardener's (qq-state-branches: no deletion or
 # force-push). qq-release-state on top: only the release executor App creates or updates it
 # (canary-app steps, step 5). Break-glass: an org owner sets qq-release-state to Disabled AND deletes
