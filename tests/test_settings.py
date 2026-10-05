@@ -109,7 +109,7 @@ def test_code_owner_review_is_per_repo(s, cfg, config_root):
     def owners(name):
         pr = next(r for r in plans[name].rulesets[0]["rules"] if r["type"] == "pull_request")
         return pr["parameters"]["require_code_owner_review"]
-    assert owners("toolchains") is True and owners("sync") is False
+    assert owners("toolchains") is True and owners("release") is True and owners("sync") is False
 
 
 def test_toolchains_queue_merges_one_pr_per_group(s, cfg, config_root):

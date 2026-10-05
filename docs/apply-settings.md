@@ -106,7 +106,10 @@ is no less safe.
   `/promoted.toml`, so a change there needs his approval once `qq-main` is applied. GitHub does
   not let anyone approve their own PR and nobody bypasses `qq-main`, so a PR suraj opens himself that
   touches those paths cannot merge until a second owner is named (README: TODO(suraj)). toolchains
-  also requires `promotion-gate` besides `ci`, and its queue merges one PR per group.
+  also requires `promotion-gate` besides `ci`, and its queue merges one PR per group. release
+  requires code-owner review too: its CODEOWNERS (release #14) names suraj for `/.github/`, `/src/`,
+  `/pins.toml` and `/pyproject.toml`, and the release executor's App key reaches only workflows on
+  main, so no workflow that can use the key lands without his review.
 - `qq-release-refs-branches` and `qq-release-refs-tags`: `lkgr` and `channels/**/*` cannot be created,
   moved or deleted except by the release executor, a dedicated GitHub App (quirq-release-executor).
   Its App ID goes in `[release_refs] bypass_integration_ids`, and it bypasses these rulesets only in
