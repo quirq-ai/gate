@@ -104,11 +104,28 @@ def test_infra_repos_with_a_presubmit_list_it(s, cfg, config_root):
     assert plans["installer"].checks == ("presubmit",)
 
 
-def test_website_is_onboarded_like_innernet(s, cfg, config_root):
+@pytest.mark.parametrize("ids", [[], [123456]])
+@pytest.mark.parametrize("website_executes", [True, False])
+def test_website_is_onboarded_like_innernet(s, cfg, config_root, ids, website_executes):
+    """Same rulesets as innernet apart from its check name and executor membership, which is
+    compared on its own so the test holds whichever repos [release_refs] names."""
+    s["release_refs"]["bypass_integration_ids"] = ids
+    if not website_executes:
+        s["release_refs"]["executor_repos"].remove("website")
     plans = plans_by_name(s, cfg, config_root)
     assert plans["website"].checks == ("website-presubmit",)
-    web, inn = plans["website"].rulesets, plans["innernet"].rulesets
-    assert json.dumps(web).replace("website-presubmit", "X") == json.dumps(inn).replace("innernet-presubmit", "X")
+
+    def split(name):
+        rs = copy.deepcopy(plans[name].rulesets)
+        bypass = {r["name"]: r.pop("bypass_actors") for r in rs}
+        return json.dumps(rs).replace(f"{name}-presubmit", "X"), bypass
+    web, web_bypass = split("website")
+    inn, inn_bypass = split("innernet")
+    assert web == inn
+    app = [{"actor_id": i, "actor_type": "Integration", "bypass_mode": "always"} for i in ids]
+    for name, bypass in (("website", web_bypass), ("innernet", inn_bypass)):
+        want = app if name in s["release_refs"]["executor_repos"] else []
+        assert bypass == {n: (want if n.startswith("qq-release-refs-") else []) for n in bypass}, name
     assert settings.repo_settings(next(r for r in s["repo"] if r["name"] == "website")) == {"allow_auto_merge": True}
 
 
