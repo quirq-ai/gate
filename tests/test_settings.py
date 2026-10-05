@@ -96,7 +96,16 @@ def test_executor_branches_need_the_app(s, cfg, config_root):
         settings.build(s, cfg, config_root)
 
 
-@pytest.mark.parametrize("bad", [["ledger"], ["release-state", "release-state"], "release-state", []])
+@pytest.mark.parametrize("name", [5, "qq-main", "qq-state-branches", "qq-release-refs-tags", "Release State"])
+def test_release_state_ruleset_name_is_its_own(name):
+    s = settings.load_settings("github")
+    taken = {"qq-main", "qq-state-branches", "qq-release-refs-tags"}
+    with pytest.raises(GateError, match="state_ruleset must be its own"):
+        settings._check_release_refs({**s["release_refs"], "state_ruleset": name}, [], taken)
+
+
+@pytest.mark.parametrize("bad", [["ledger"], ["release-state", "release-state"], "release-state", [],
+                                 [["release-state"]]])
 def test_executor_branches_are_state_branches(bad):
     with pytest.raises(GateError, match="executor_branches must be distinct names from its state_branches"):
         settings.repo_options({"name": "release", "state_branches": ["release-state"], "executor_branches": bad})

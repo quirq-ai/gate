@@ -252,7 +252,8 @@ code_owner_review = true             # CODEOWNERS (release #14, suraj): .github/
 # channels.json and operation keys; same rules as gardener's (qq-state-branches: no deletion or
 # force-push). qq-release-state on top: only the release executor App creates or updates it
 # (canary-app steps, step 5). Break-glass: an org owner sets qq-release-state to Disabled AND deletes
-# the QQ_RELEASE_CLIENT_ID variable in release, which is the mode before step 5.
+# the QQ_RELEASE_CLIENT_ID variable in release (workflows then push with their own token, the mode
+# before command 2). Restore: set the variable again first, then re-apply (docs/apply-settings.md).
 state_branches = ["release-state"]
 executor_branches = ["release-state"]
 

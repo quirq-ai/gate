@@ -124,7 +124,7 @@ is no less safe.
   release executor by `qq-release-refs-tags`.
 - `qq-state-branches`, where `state_branches` names some (gardener `ledger` and `tree-status`,
   release `release-state`, perf `perf-data`, test-pipelines `results`): those branches cannot be deleted or force-pushed.
-  Their bots still push to them normally.
+  Their bots still push to them normally, except release-state once `qq-release-state` (below) is on.
 - `qq-release-state`, in release: only the release executor App may create, update or delete
   `refs/heads/release-state` (rules creation, update, deletion, non_fast_forward; the App ID as an
   `always` bypass). `qq-state-branches` still applies on top, since rulesets stack, so even the App
@@ -136,9 +136,13 @@ is no less safe.
   - Break-glass: an org owner sets `qq-release-state` to Disabled in Settings > Rules **and**
     deletes the `QQ_RELEASE_CLIENT_ID` variable
     (`gh api -X DELETE repos/quirq-ai/release/actions/variables/QQ_RELEASE_CLIENT_ID`), which is the
-    mode before this ruleset. Deleting only the variable leaves release-state writable by nobody;
-    disabling only the ruleset leaves it open to any pusher. Re-running this
-    apply afterwards reports `qq-release-state` as `differs` and asks before restoring it.
+    mode before the variable was first set (canary-app command 2), when workflows push release-state
+    with their own token. Deleting only the variable leaves release-state writable by nobody;
+    disabling only the ruleset leaves it open to any pusher.
+  - To restore: first set the variable again (command 2), then re-run this apply. It reports
+    `qq-release-state` as `differs`; answering "replace them" before the variable is back would
+    leave release-state writable by nobody. Any later apply shows the same `differs` while the
+    ruleset is disabled, so answer no to it until the variable is back.
 - `qq-release-tags`, in depot: no tag (`**/*`, nested ones too) may be created, moved or deleted
   by anyone, admins and the release executor included, until depot is added to
   `[release_refs] executor_repos` (with the App installed on depot). depot's pins
