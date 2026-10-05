@@ -124,8 +124,21 @@ is no less safe.
   release executor by `qq-release-refs-tags`.
 - `qq-state-branches`, where `state_branches` names some (gardener `ledger` and `tree-status`,
   release `release-state`, perf `perf-data`, test-pipelines `results`): those branches cannot be deleted or force-pushed.
-  Their bots still push to them normally. Later, once the release executor exists, `release-state`
-  should also be writable only by it (TODO(suraj) in `settings/github.toml`).
+  Their bots still push to them normally.
+- `qq-release-state`, in release: only the release executor App may create, update or delete
+  `refs/heads/release-state` (rules creation, update, deletion, non_fast_forward; the App ID as an
+  `always` bypass). `qq-state-branches` still applies on top, since rulesets stack, so even the App
+  cannot delete or force-push it. The plan refuses this ruleset while `[release_refs]
+  bypass_integration_ids` is empty or release is not in `executor_repos`, because nobody could
+  write release-state then.
+  - Read-only check after the apply: `gh api repos/quirq-ai/release/rules/branches/release-state`
+    lists all four rules, and `qq-release-state` (Settings > Rules) has the App as its bypass.
+  - Break-glass: an org owner sets `qq-release-state` to Disabled in Settings > Rules **and**
+    deletes the `QQ_RELEASE_CLIENT_ID` variable
+    (`gh api -X DELETE repos/quirq-ai/release/actions/variables/QQ_RELEASE_CLIENT_ID`), which is the
+    mode before this ruleset. Deleting only the variable leaves release-state writable by nobody;
+    disabling only the ruleset leaves it open to any pusher. Re-running this
+    apply afterwards reports `qq-release-state` as `differs` and asks before restoring it.
 - `qq-release-tags`, in depot: no tag (`**/*`, nested ones too) may be created, moved or deleted
   by anyone, admins and the release executor included, until depot is added to
   `[release_refs] executor_repos` (with the App installed on depot). depot's pins

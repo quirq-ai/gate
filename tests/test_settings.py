@@ -70,6 +70,38 @@ def test_release_executor_bypass_only_where_its_app_is_installed(s, cfg, config_
         assert by["qq-main"] == [] and by.get("qq-release-tags", []) == [], name
 
 
+def test_release_state_is_written_only_by_the_release_executor(s, cfg, config_root):
+    """Step 5: exactly this ruleset on release (canary-app audit S4); qq-state-branches stays too."""
+    s["release_refs"]["bypass_integration_ids"] = [123456]
+    plans = plans_by_name(s, cfg, config_root)
+    by = {r["name"]: r for r in plans["release"].rulesets}
+    assert by["qq-release-state"] == {
+        "name": "qq-release-state", "target": "branch", "enforcement": "active",
+        "bypass_actors": [{"actor_id": 123456, "actor_type": "Integration", "bypass_mode": "always"}],
+        "conditions": {"ref_name": {"include": ["refs/heads/release-state"], "exclude": []}},
+        "rules": [{"type": "creation"}, {"type": "update"}, {"type": "deletion"}, {"type": "non_fast_forward"}]}
+    assert by["qq-state-branches"]["bypass_actors"] == []
+    assert by["qq-state-branches"]["conditions"]["ref_name"]["include"] == ["refs/heads/release-state"]
+    assert [n for n, p in plans.items() if "qq-release-state" in {r["name"] for r in p.rulesets}] == ["release"]
+
+
+def test_executor_branches_need_the_app(s, cfg, config_root):
+    """Without the App's bypass nobody could write release-state, so the plan refuses instead."""
+    assert s["release_refs"]["bypass_integration_ids"] == []
+    with pytest.raises(GateError, match="executor_branches need the release executor's App ID"):
+        settings.build(s, cfg, config_root)
+    s["release_refs"]["bypass_integration_ids"] = [123456]
+    s["release_refs"]["executor_repos"] = ["innernet", "xo-space"]
+    with pytest.raises(GateError, match="executor_branches need"):
+        settings.build(s, cfg, config_root)
+
+
+@pytest.mark.parametrize("bad", [["ledger"], ["release-state", "release-state"], "release-state", []])
+def test_executor_branches_are_state_branches(bad):
+    with pytest.raises(GateError, match="executor_branches must be distinct names from its state_branches"):
+        settings.repo_options({"name": "release", "state_branches": ["release-state"], "executor_branches": bad})
+
+
 @pytest.mark.parametrize("ids", [[0], [-1], ["123"], [True], [1.5], [7, 7], 7, ["<App ID>"]])
 def test_release_executor_ids_are_positive_integers(tmp_path, ids):
     p = tmp_path / "github.toml"

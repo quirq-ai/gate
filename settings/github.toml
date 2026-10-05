@@ -33,6 +33,8 @@ bypass_integration_ids = []            # TODO(suraj): [<App ID>] from the App's 
 # qq-release-tags included: letting the executor write depot tags means installing the App on depot
 # and adding depot here, an explicit later change.
 executor_repos = ["release", "innernet", "xo-space"]
+# A repo's executor_branches (state branches only the executor may write) get this ruleset.
+state_ruleset = "qq-release-state"
 
 [reserved_tags]
 # Tags named like a branch. A tag called `main` satisfies a workflow's `github.ref_name == 'main'`
@@ -247,9 +249,12 @@ checks = ["presubmit"]
 code_owner_review = true             # CODEOWNERS (release #14, suraj): .github/, src/, pins.toml,
                                      # pyproject.toml. The executor's key reaches only workflows on
                                      # main, so a change there needs suraj's review (canary-app audit S5).
-# channels.json and operation keys; same rules as gardener's. TODO(suraj): once the release executor
-# identity exists, restrict updates here to it (like qq-release-refs), not just deletion and force-push.
+# channels.json and operation keys; same rules as gardener's (qq-state-branches: no deletion or
+# force-push). qq-release-state on top: only the release executor App creates or updates it
+# (canary-app steps, step 5). Break-glass: an org owner sets qq-release-state to Disabled AND deletes
+# the QQ_RELEASE_CLIENT_ID variable in release, which is the mode before step 5.
 state_branches = ["release-state"]
+executor_branches = ["release-state"]
 
 [[repo]]
 name = "installer"
