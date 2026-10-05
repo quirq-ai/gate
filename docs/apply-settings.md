@@ -106,12 +106,7 @@ is no less safe.
   `/promoted.toml`, so a change there needs his approval once `qq-main` is applied. GitHub does
   not let anyone approve their own PR and nobody bypasses `qq-main`, so a PR suraj opens himself that
   touches those paths cannot merge until a second owner is named (README: TODO(suraj)). toolchains
-  also requires `promotion-gate` besides `ci`, and its queue merges one PR per group. release
-  requires code-owner review too: its CODEOWNERS (release #14) names suraj for `/.github/`, `/src/`,
-  `/pins.toml` and `/pyproject.toml`, and the release executor's App key reaches only workflows on
-  main, so no workflow that can use the key lands without his review. The cost: most release PRs
-  touch those paths, so they wait for his approval (and an agent's push after it asks again), and a
-  PR suraj opens himself on those paths cannot merge until a second owner is named.
+  also requires `promotion-gate` besides `ci`, and its queue merges one PR per group.
 - `qq-release-refs-branches` and `qq-release-refs-tags`: `lkgr` and `channels/**/*` cannot be created,
   moved or deleted except by the release executor, a dedicated GitHub App (quirq-release-executor).
   Its App ID goes in `[release_refs] bypass_integration_ids`, and it bypasses these rulesets only in
@@ -213,8 +208,7 @@ App tokens); PRs already open get it on their next push. The org's plan does not
 
 - A repo's required checks match a job name from GitHub Actions, so a PR that edits its own
   workflows could make a same-named job pass. What stops that is review of `.github/`: toolchains
-  and release require suraj's code-owner review there (toolchains #14, release #14); xo-space and
-  innernet do not yet.
+  requires suraj's code-owner review there (toolchains #14); xo-space and innernet do not yet.
 - toolchains' promotion gate is a repo required check (`promotion-gate`, on `pull_request` and
   `merge_group` since toolchains #15). A PR's own workflows can fake it only by editing `.github/`,
   which needs suraj's code-owner review; a push after his approval dismisses it
