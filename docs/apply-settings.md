@@ -213,8 +213,8 @@ App tokens); PRs already open get it on their next push. The org's plan does not
 
 - A repo's required checks match a job name from GitHub Actions, so a PR that edits its own
   workflows could make a same-named job pass. What stops that is review of `.github/`: toolchains
-  and release require suraj's code-owner review there (toolchains #14, release #14); xo-space and
-  innernet do not yet.
+  and release require suraj's code-owner review there (toolchains #14, release #14); xo-space,
+  innernet and website do not yet.
 - toolchains' promotion gate is a repo required check (`promotion-gate`, on `pull_request` and
   `merge_group` since toolchains #15). A PR's own workflows can fake it only by editing `.github/`,
   which needs suraj's code-owner review; a push after his approval dismisses it
