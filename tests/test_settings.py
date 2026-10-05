@@ -60,12 +60,12 @@ def test_release_refs_are_locked_to_the_release_executor(s, cfg, config_root):
 def test_release_executor_bypass_only_where_its_app_is_installed(s, cfg, config_root):
     """The App id lands only in executor_repos' release refs; depot's release tags and every other
     repo keep no bypass (an Integration bypass for an App not installed may be refused mid-apply)."""
-    assert s["release_refs"]["executor_repos"] == ["release", "innernet", "xo-space"]
+    assert s["release_refs"]["executor_repos"] == ["release", "innernet", "xo-space", "website"]
     s["release_refs"]["bypass_integration_ids"] = [123456]
     app = [{"actor_id": 123456, "actor_type": "Integration", "bypass_mode": "always"}]
     for name, plan in plans_by_name(s, cfg, config_root).items():
         by = {r["name"]: r["bypass_actors"] for r in plan.rulesets}
-        want = app if name in ("release", "innernet", "xo-space") else []
+        want = app if name in ("release", "innernet", "xo-space", "website") else []
         assert by["qq-release-refs-branches"] == want and by["qq-release-refs-tags"] == want, name
         assert by["qq-main"] == [] and by.get("qq-release-tags", []) == [], name
 

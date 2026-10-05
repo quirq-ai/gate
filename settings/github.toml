@@ -32,7 +32,9 @@ bypass_integration_ids = []            # TODO(suraj): [<App ID>] from the App's 
 # dry run (GET only) could not show that before the write. Every other repo keeps no bypass, depot's
 # qq-release-tags included: letting the executor write depot tags means installing the App on depot
 # and adding depot here, an explicit later change.
-executor_repos = ["release", "innernet", "xo-space"]
+# website too: release's lkgr moves every onboarded repo's lkgr ref (`qqrelease repos` at infra-config
+# 41a8cb0 lists xo-space, website, innernet), channels or not.
+executor_repos = ["release", "innernet", "xo-space", "website"]
 
 [reserved_tags]
 # Tags named like a branch. A tag called `main` satisfies a workflow's `github.ref_name == 'main'`

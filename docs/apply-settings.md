@@ -115,7 +115,7 @@ is no less safe.
 - `qq-release-refs-branches` and `qq-release-refs-tags`: `lkgr` and `channels/**/*` cannot be created,
   moved or deleted except by the release executor, a dedicated GitHub App (quirq-release-executor).
   Its App ID goes in `[release_refs] bypass_integration_ids`, and it bypasses these rulesets only in
-  `executor_repos` (release, innernet, xo-space), the repos the App is installed on. Every other
+  `executor_repos` (release, innernet, xo-space, website), the repos the App is installed on. Every other
   repo keeps no bypass: GitHub may refuse an Integration bypass for an App that is not installed,
   and the dry run (GET only) could not show that before the write. Until the App ID is set nobody can
   write them.
