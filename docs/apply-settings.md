@@ -112,8 +112,8 @@ is no less safe.
   Its App ID goes in `[release_refs] bypass_integration_ids`, and it bypasses these rulesets only in
   `executor_repos` (release, innernet, xo-space), the repos the App is installed on. Every other
   repo keeps no bypass: GitHub may refuse an Integration bypass for an App that is not installed,
-  and the dry run (GET only) could not show that before the write. Until the App ID is set nobody can
-  write them.
+  and the dry run (GET only) could not show that before the write. The App ID is 5199903 (created
+  2026-10-05).
 - `qq-reserved-tags`, in every repo: nobody may create, move or delete a tag named `main` or like
   any repo's state branch (`ledger`, `perf-data`, `release-state`, `results`, `tree-status`). A tag
   named `main` satisfies a workflow's `github.ref_name == 'main'` test, and a tag wins over a branch
@@ -241,9 +241,9 @@ required check or review. It is on in every repo but xo-space, where suraj lands
 - Whether admins get a break-glass bypass on `main`. The default is none. An org owner can still
   disable or edit a ruleset in Settings > Rules (the next run reports that as `differs`).
 - The release executor's App ID (quirq-release-executor) for `lkgr`, `channels/**/*` and
-  `release-state`, in `[release_refs] bypass_integration_ids` (a positive integer). The client id
-  (`Iv23...`) is refused, but an installation id is a number too and would be accepted silently, so
-  copy the App ID itself from the App's General page.
+  `release-state`, in `[release_refs] bypass_integration_ids`: set to 5199903 on 2026-10-05, from
+  command 1's output. The client id (`Iv23...`) is refused, but an installation id is a number too
+  and would be accepted silently, so a later change must copy the App ID from the App's General page.
 - Approvals: `required_approvals = 0` today, because every PR here comes from an agent account and
   you cannot approve your own PRs. Code-owner review on tests and `infra/` is V0-GAT-03.
 
