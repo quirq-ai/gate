@@ -244,6 +244,8 @@ name = "release"
 allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "infra"
 checks = ["presubmit"]
+# No code_owner_review: suraj chose a fully autonomous release on 2026-10-05 (he reverts what he
+# dislikes). So any green PR can land a workflow on main that uses the executor App's key.
 # channels.json and operation keys; same rules as gardener's. TODO(suraj): once the release executor
 # identity exists, restrict updates here to it (like qq-release-refs), not just deletion and force-push.
 state_branches = ["release-state"]
