@@ -108,8 +108,12 @@ is no less safe.
   touches those paths cannot merge until a second owner is named (README: TODO(suraj)). toolchains
   also requires `promotion-gate` besides `ci`, and its queue merges one PR per group.
 - `qq-release-refs-branches` and `qq-release-refs-tags`: `lkgr` and `channels/**/*` cannot be created,
-  moved or deleted except by the release executor. Its identity is not decided yet, so today nobody
-  can write them.
+  moved or deleted except by the release executor, a dedicated GitHub App (quirq-release-executor).
+  Its App ID goes in `[release_refs] bypass_integration_ids`, and it bypasses these rulesets only in
+  `executor_repos` (release, innernet, xo-space), the repos the App is installed on. Every other
+  repo keeps no bypass: GitHub may refuse an Integration bypass for an App that is not installed,
+  and the dry run (GET only) could not show that before the write. Until the App ID is set nobody can
+  write them.
 - `qq-reserved-tags`, in every repo: nobody may create, move or delete a tag named `main` or like
   any repo's state branch (`ledger`, `perf-data`, `release-state`, `results`, `tree-status`). A tag
   named `main` satisfies a workflow's `github.ref_name == 'main'` test, and a tag wins over a branch
@@ -120,11 +124,12 @@ is no less safe.
   Their bots still push to them normally. Later, once the release executor exists, `release-state`
   should also be writable only by it (TODO(suraj) in `settings/github.toml`).
 - `qq-release-tags`, in depot: no tag (`**/*`, nested ones too) may be created, moved or deleted
-  except by the release executor (not decided yet, so by nobody, admins included). depot's pins
+  by anyone, admins and the release executor included, until depot is added to
+  `[release_refs] executor_repos` (with the App installed on depot). depot's pins
   trust its tags: a version-only pin, such as xo-space's and innernet's `[qq] version = "0.1.0"`,
   installs tag `v<version>`, and a `git:` commit must be on main or a `v*` tag (depot #16; main
-  is locked by `qq-main`). So depot `v0.1.0` cannot be cut, by hand or otherwise, until the
-  release executor exists (neither product's CI installs qq yet). Other qq repos pin each other by
+  is locked by `qq-main`). So depot `v0.1.0` cannot be cut, by hand or otherwise, until then
+  (neither product's CI installs qq yet). Other qq repos pin each other by
   commit and toolchains checks digests, so no other pins trust tags. xo-space's `v*` tags start its container publish; they are not locked, because
   suraj cuts them by hand (TODO(suraj): who may create them).
 - Not in this apply: `qq-dependabot-branches` (only Dependabot may push to or force-push
@@ -233,7 +238,9 @@ required check or review. It is on in every repo but xo-space, where suraj lands
 - Squash merges for every repo: confirmed 2026-10-04.
 - Whether admins get a break-glass bypass on `main`. The default is none. An org owner can still
   disable or edit a ruleset in Settings > Rules (the next run reports that as `differs`).
-- The release executor's identity (a GitHub App id) for `lkgr`, `channels/**/*` and `release-state`.
+- The release executor's App ID (quirq-release-executor) for `lkgr`, `channels/**/*` and
+  `release-state`, in `[release_refs] bypass_integration_ids` (a positive integer; the client id or an
+  installation id is refused only if it is not a number, so copy the App ID itself).
 - Approvals: `required_approvals = 0` today, because every PR here comes from an agent account and
   you cannot approve your own PRs. Code-owner review on tests and `infra/` is V0-GAT-03.
 

@@ -136,7 +136,8 @@ def _status_checks_rule(names) -> dict:
 
 def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_review: bool = False,
              group_size: int = 5, state_branches: tuple[str, ...] = (),
-             dependabot_branches: bool = False, release_tags: tuple[str, ...] = ()) -> list[dict]:
+             dependabot_branches: bool = False, release_tags: tuple[str, ...] = (),
+             release_executor: bool = False) -> list[dict]:
     """V0-ORG-03: the repository rulesets (REST: POST /repos/{o}/{r}/rulesets) for one repo."""
     main, refs = settings["main"], settings["release_refs"]
     method = main["merge_method"].upper()
@@ -172,8 +173,11 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
     ]
     if checks:
         rules.append(_status_checks_rule(checks))
+    # The release executor bypasses its refs only where its App is installed (release_executor):
+    # GitHub may refuse an Integration bypass for an App not installed on the repo, and the dry run
+    # (GET only) could not show that before the write.
     bypass = [{"actor_id": i, "actor_type": "Integration", "bypass_mode": "always"}
-              for i in refs["bypass_integration_ids"]]
+              for i in refs["bypass_integration_ids"]] if release_executor else []
     lock = [{"type": t} for t in ("creation", "update", "deletion", "non_fast_forward")]
     state = []
     if state_branches:
