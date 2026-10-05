@@ -190,7 +190,7 @@ def _trusted_plans(data: dict, wanted: list[str] | None, s: dict, config_root: P
                 if c not in mod.generated_jobs(config_root, r["name"], c):
                     raise GateError(f"plan's check {c!r} for {r['name']} is not a job in a workflow the pinned "
                                     "infra-config generates")
-        rulesets = mod.rulesets(s, cfg, tuple(required), **settings.repo_options(r))
+        rulesets = mod.rulesets(s, cfg, tuple(required), **settings.repo_options(r, s))
         if rulesets != d.get("rulesets"):
             raise GateError(f"plan's rulesets for {r['name']} differ from what settings/github.toml builds")
         plans.append(settings.RepoPlan(r["name"], r["kind"], tuple(required), tuple(rulesets)))

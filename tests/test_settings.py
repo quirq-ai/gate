@@ -54,7 +54,38 @@ def test_release_refs_are_locked_to_the_release_executor(s, cfg, config_root):
     assert tags["target"] == "tag"
     for rs in (branches, tags):
         assert {r["type"] for r in rs["rules"]} == {"creation", "update", "deletion", "non_fast_forward"}
-        assert rs["bypass_actors"] == []   # until suraj names the release executor
+        assert rs["bypass_actors"] == []   # gate is not in [release_refs] executor_repos
+
+
+def test_release_executor_bypass_only_where_its_app_is_installed(s, cfg, config_root):
+    """The App id lands only in executor_repos' release refs; depot's release tags and every other
+    repo keep no bypass (an Integration bypass for an App not installed may be refused mid-apply)."""
+    assert s["release_refs"]["executor_repos"] == ["release", "innernet", "xo-space"]
+    s["release_refs"]["bypass_integration_ids"] = [123456]
+    app = [{"actor_id": 123456, "actor_type": "Integration", "bypass_mode": "always"}]
+    for name, plan in plans_by_name(s, cfg, config_root).items():
+        by = {r["name"]: r["bypass_actors"] for r in plan.rulesets}
+        want = app if name in ("release", "innernet", "xo-space") else []
+        assert by["qq-release-refs-branches"] == want and by["qq-release-refs-tags"] == want, name
+        assert by["qq-main"] == [] and by.get("qq-release-tags", []) == [], name
+
+
+@pytest.mark.parametrize("ids", [[0], [-1], ["123"], [True], [1.5], [7, 7], 7, ["<App ID>"], None])
+def test_release_executor_ids_are_positive_integers(tmp_path, ids):
+    p = tmp_path / "github.toml"
+    ids = "" if ids is None else f"bypass_integration_ids = {json.dumps(ids)}\n"
+    p.write_text(f"[release_refs]\nbranches = []\ntags = []\n{ids}")
+    with pytest.raises(GateError, match="bypass_integration_ids must be distinct positive integers"):
+        settings.load_settings("github", p)
+
+
+@pytest.mark.parametrize("where, why", [(["nope"], "not listed in settings"), (["x", "x"], "distinct"),
+                                        ("x", "distinct"), ([1], "distinct")])
+def test_release_executor_repos_are_listed_repos(tmp_path, where, why):
+    p = tmp_path / "github.toml"
+    p.write_text(f'[release_refs]\nbypass_integration_ids = []\nexecutor_repos = {json.dumps(where)}\n\n[[repo]]\nname = "x"\n')
+    with pytest.raises(GateError, match=why):
+        settings.load_settings("github", p)
 
 
 def test_repo_without_checks_is_not_ready(s, cfg, config_root, tmp_path):
@@ -87,7 +118,7 @@ def test_code_owner_review_is_per_repo(s, cfg, config_root):
     def owners(name):
         pr = next(r for r in plans[name].rulesets[0]["rules"] if r["type"] == "pull_request")
         return pr["parameters"]["require_code_owner_review"]
-    assert owners("toolchains") is True and owners("sync") is False
+    assert owners("toolchains") is True and owners("release") is True and owners("sync") is False
 
 
 def test_toolchains_queue_merges_one_pr_per_group(s, cfg, config_root):
@@ -843,7 +874,7 @@ def test_depot_tags_that_pins_trust_are_locked(s, cfg, config_root):
     rs = {r["name"]: r for r in plans["depot"].rulesets}["qq-release-tags"]
     assert rs["target"] == "tag" and rs["conditions"]["ref_name"]["include"] == ["refs/tags/**/*"]
     assert {r["type"] for r in rs["rules"]} == {"creation", "update", "deletion", "non_fast_forward"}
-    assert rs["bypass_actors"] == []   # the release executor, once it exists (release_refs)
+    assert rs["bypass_actors"] == []   # depot is not in [release_refs] executor_repos
     assert all("qq-release-tags" not in {r["name"] for r in p.rulesets} for n, p in plans.items() if n != "depot")
 
 
