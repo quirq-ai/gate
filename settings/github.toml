@@ -109,6 +109,16 @@ ref = "refs/heads/main"
 sha = "eaa2c88516fe8a8d9c581a65bebe9f9fbfae67c3"   # infra-config main at #19 (no concurrency)
 targets = ["innernet"]
 
+[[org_workflows]]
+ruleset = "qq-website-presubmit-pinned"
+enabled = false                      # see qq-xo-space-presubmit-pinned
+pinned = true
+repository = "infra-config"
+path = ".github/workflows/qq-required-website-presubmit.yml"
+ref = "refs/heads/main"
+sha = "41a8cb0a19e4f12ecb0d6407ba1155cd42c498ad"   # infra-config main at #32 (#31 added website)
+targets = ["website"]
+
 # --- product repos (required checks from infra-config) ---------------------------------------
 
 [[repo]]

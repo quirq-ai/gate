@@ -167,11 +167,11 @@ The rest of this section describes them for a paid plan.
 repo on every PR and queue entry, so a PR cannot satisfy them with its own same-named job. Turning
 one on or off is a reviewed change to that file, after which the same command applies it.
 
-- `qq-xo-space-presubmit-pinned` and `qq-innernet-presubmit-pinned` (off): each product repo's presubmit,
+- `qq-xo-space-presubmit-pinned`, `qq-innernet-presubmit-pinned` and `qq-website-presubmit-pinned` (off): each product repo's presubmit,
   run from infra-config's `.github/workflows/qq-required-<repo>-presubmit.yml` at a pinned commit
   (`sha`), so neither a PR nor a dependency roll can change the workflow that judges it. rollers
-  auto-lands only into a repo that has one. Pinned at infra-config `eaa2c88` (#19), whose files
-  dropped `cancel-in-progress`; both pass the checks below on a fresh clone. The pin fixes the workflow file, not
+  auto-lands only into a repo that has one. xo-space and innernet are pinned at infra-config `eaa2c88` (#19), whose files
+  dropped `cancel-in-progress`, and website at `41a8cb0` (#32; #31 added its file); all three pass the checks below on a fresh clone. The pin fixes the workflow file, not
   the code it runs: owner review of tests and scripts is V0-GAT-03 (waits on ORG-02 owners).
 - `qq-toolchains-promotion-gate` (off): toolchains' `promotion-gate.yml`, pinned at `eb71c8e`
   (toolchains #13: no `cancel-in-progress`, a 35-minute timeout). The pin fixes the workflow file;

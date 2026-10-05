@@ -73,6 +73,14 @@ def test_infra_repos_with_a_presubmit_list_it(s, cfg, config_root):
     assert plans["installer"].checks == ("presubmit",)
 
 
+def test_website_is_onboarded_like_innernet(s, cfg, config_root):
+    plans = plans_by_name(s, cfg, config_root)
+    assert plans["website"].checks == ("website-presubmit",)
+    web, inn = plans["website"].rulesets, plans["innernet"].rulesets
+    assert json.dumps(web).replace("website-presubmit", "X") == json.dumps(inn).replace("innernet-presubmit", "X")
+    assert settings.repo_settings(next(r for r in s["repo"] if r["name"] == "website")) == {"allow_auto_merge": True}
+
+
 def test_code_owner_review_is_per_repo(s, cfg, config_root):
     plans = plans_by_name(s, cfg, config_root)
 
@@ -209,7 +217,8 @@ def test_plan_prints_json(config_root, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["(backend)"] == "github" and out["gate"]["rulesets"][0]["name"] == "qq-main"
     assert {w["ruleset"] for w in out["(org)"]} == {"qq-drift", "qq-toolchains-promotion-gate",
-                                                    "qq-xo-space-presubmit-pinned", "qq-innernet-presubmit-pinned"}
+                                                    "qq-xo-space-presubmit-pinned", "qq-innernet-presubmit-pinned",
+                                                    "qq-website-presubmit-pinned"}
 
 
 def test_org_rulesets_run_a_workflow_from_another_repos_main(s, cfg):
