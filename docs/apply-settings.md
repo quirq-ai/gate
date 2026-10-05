@@ -255,8 +255,9 @@ required check or review. It is on in every repo but xo-space, where suraj lands
 - Whether admins get a break-glass bypass on `main`. The default is none. An org owner can still
   disable or edit a ruleset in Settings > Rules (the next run reports that as `differs`).
 - The release executor's App ID (quirq-release-executor) for `lkgr`, `channels/**/*` and
-  `release-state`, in `[release_refs] bypass_integration_ids` (a positive integer; the client id or an
-  installation id is refused only if it is not a number, so copy the App ID itself).
+  `release-state`, in `[release_refs] bypass_integration_ids` (a positive integer). The client id
+  (`Iv23...`) is refused, but an installation id is a number too and would be accepted silently, so
+  copy the App ID itself from the App's General page.
 - Approvals: `required_approvals = 0` today, because every PR here comes from an agent account and
   you cannot approve your own PRs. Code-owner review on tests and `infra/` is V0-GAT-03.
 

@@ -53,7 +53,7 @@ def load_settings(backend: str, path: Path | None = None) -> dict:
 def _check_release_refs(refs: dict, repos: list) -> None:
     """The release executor's bypass: GitHub App ids (positive integers, the App ID, not its client id
     or an installation id), and the repos it is installed on, the only ones that get the bypass."""
-    ids = refs.get("bypass_integration_ids", [])
+    ids = refs.get("bypass_integration_ids")
     if not isinstance(ids, list) or len(set(map(repr, ids))) != len(ids) or not all(
             isinstance(i, int) and not isinstance(i, bool) and i > 0 for i in ids):
         raise GateError(f"release_refs.bypass_integration_ids must be distinct positive integers (GitHub "

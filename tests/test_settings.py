@@ -54,7 +54,7 @@ def test_release_refs_are_locked_to_the_release_executor(s, cfg, config_root):
     assert tags["target"] == "tag"
     for rs in (branches, tags):
         assert {r["type"] for r in rs["rules"]} == {"creation", "update", "deletion", "non_fast_forward"}
-        assert rs["bypass_actors"] == []   # until the release executor's App ID is set
+        assert rs["bypass_actors"] == []   # gate is not in [release_refs] executor_repos
 
 
 def test_release_executor_bypass_only_where_its_app_is_installed(s, cfg, config_root):
@@ -87,7 +87,7 @@ def test_release_state_is_written_only_by_the_release_executor(s, cfg, config_ro
 
 def test_executor_branches_need_the_app(s, cfg, config_root):
     """Without the App's bypass nobody could write release-state, so the plan refuses instead."""
-    assert s["release_refs"]["bypass_integration_ids"] == []
+    s["release_refs"]["bypass_integration_ids"] = []
     with pytest.raises(GateError, match="executor_branches need the release executor's App ID"):
         settings.build(s, cfg, config_root)
     s["release_refs"]["bypass_integration_ids"] = [123456]
@@ -102,10 +102,11 @@ def test_executor_branches_are_state_branches(bad):
         settings.repo_options({"name": "release", "state_branches": ["release-state"], "executor_branches": bad})
 
 
-@pytest.mark.parametrize("ids", [[0], [-1], ["123"], [True], [1.5], [7, 7], 7, ["<App ID>"]])
+@pytest.mark.parametrize("ids", [[0], [-1], ["123"], [True], [1.5], [7, 7], 7, ["<App ID>"], None])
 def test_release_executor_ids_are_positive_integers(tmp_path, ids):
     p = tmp_path / "github.toml"
-    p.write_text(f"[release_refs]\nbranches = []\ntags = []\nbypass_integration_ids = {json.dumps(ids)}\n")
+    ids = "" if ids is None else f"bypass_integration_ids = {json.dumps(ids)}\n"
+    p.write_text(f"[release_refs]\nbranches = []\ntags = []\n{ids}")
     with pytest.raises(GateError, match="bypass_integration_ids must be distinct positive integers"):
         settings.load_settings("github", p)
 
@@ -114,7 +115,7 @@ def test_release_executor_ids_are_positive_integers(tmp_path, ids):
                                         ("x", "distinct"), ([1], "distinct")])
 def test_release_executor_repos_are_listed_repos(tmp_path, where, why):
     p = tmp_path / "github.toml"
-    p.write_text(f'[release_refs]\nexecutor_repos = {json.dumps(where)}\n\n[[repo]]\nname = "x"\n')
+    p.write_text(f'[release_refs]\nbypass_integration_ids = []\nexecutor_repos = {json.dumps(where)}\n\n[[repo]]\nname = "x"\n')
     with pytest.raises(GateError, match=why):
         settings.load_settings("github", p)
 
