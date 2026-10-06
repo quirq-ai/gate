@@ -60,12 +60,12 @@ def test_release_refs_are_locked_to_the_release_executor(s, cfg, config_root):
 def test_release_executor_bypass_only_where_its_app_is_installed(s, cfg, config_root):
     """The App id lands only in executor_repos' release refs; depot's release tags and every other
     repo keep no bypass (an Integration bypass for an App not installed may be refused mid-apply)."""
-    assert s["release_refs"]["executor_repos"] == ["release", "innernet", "xo-space"]
+    assert s["release_refs"]["executor_repos"] == ["release", "innernet", "xo-space", "website"]
     s["release_refs"]["bypass_integration_ids"] = [123456]
     app = [{"actor_id": 123456, "actor_type": "Integration", "bypass_mode": "always"}]
     for name, plan in plans_by_name(s, cfg, config_root).items():
         by = {r["name"]: r["bypass_actors"] for r in plan.rulesets}
-        want = app if name in ("release", "innernet", "xo-space") else []
+        want = app if name in ("release", "innernet", "xo-space", "website") else []
         assert by["qq-release-refs-branches"] == want and by["qq-release-refs-tags"] == want, name
         assert by["qq-main"] == [] and by.get("qq-release-tags", []) == [], name
 
@@ -102,6 +102,31 @@ def test_infra_repos_with_a_presubmit_list_it(s, cfg, config_root):
     assert plans["rollers"].checks == ("test",)
     assert plans["release"].checks == ("presubmit",)
     assert plans["installer"].checks == ("presubmit",)
+
+
+@pytest.mark.parametrize("ids", [[], [123456]])
+@pytest.mark.parametrize("website_executes", [True, False])
+def test_website_is_onboarded_like_innernet(s, cfg, config_root, ids, website_executes):
+    """Same rulesets as innernet apart from its check name and executor membership, which is
+    compared on its own so the test holds whichever repos [release_refs] names."""
+    s["release_refs"]["bypass_integration_ids"] = ids
+    if not website_executes:
+        s["release_refs"]["executor_repos"].remove("website")
+    plans = plans_by_name(s, cfg, config_root)
+    assert plans["website"].checks == ("website-presubmit",)
+
+    def split(name):
+        rs = copy.deepcopy(plans[name].rulesets)
+        bypass = {r["name"]: r.pop("bypass_actors") for r in rs}
+        return json.dumps(rs).replace(f"{name}-presubmit", "X"), bypass
+    web, web_bypass = split("website")
+    inn, inn_bypass = split("innernet")
+    assert web == inn
+    app = [{"actor_id": i, "actor_type": "Integration", "bypass_mode": "always"} for i in ids]
+    for name, bypass in (("website", web_bypass), ("innernet", inn_bypass)):
+        want = app if name in s["release_refs"]["executor_repos"] else []
+        assert bypass == {n: (want if n.startswith("qq-release-refs-") else []) for n in bypass}, name
+    assert settings.repo_settings(next(r for r in s["repo"] if r["name"] == "website")) == {"allow_auto_merge": True}
 
 
 def test_code_owner_review_is_per_repo(s, cfg, config_root):
@@ -240,12 +265,13 @@ def test_plan_prints_json(config_root, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["(backend)"] == "github" and out["gate"]["rulesets"][0]["name"] == "qq-main"
     assert {w["ruleset"] for w in out["(org)"]} == {"qq-drift", "qq-toolchains-promotion-gate",
-                                                    "qq-xo-space-presubmit-pinned", "qq-innernet-presubmit-pinned"}
+                                                    "qq-xo-space-presubmit-pinned", "qq-innernet-presubmit-pinned",
+                                                    "qq-website-presubmit-pinned"}
 
 
 def test_org_rulesets_run_a_workflow_from_another_repos_main(s, cfg):
     org = {w["ruleset"]: w for w in settings.org_workflows(s, cfg)}
-    assert org["qq-drift"]["targets"] == ["innernet", "xo-space"] and org["qq-drift"]["enabled"] is False
+    assert org["qq-drift"]["targets"] == ["innernet", "website", "xo-space"] and org["qq-drift"]["enabled"] is False
     tc = org["qq-toolchains-promotion-gate"]
     assert tc["targets"] == ["toolchains"] and tc["enabled"] is False   # Free plan (suraj, 2026-10-04)
     rs = github.org_ruleset(tc, ["toolchains"], repository_id=42)

@@ -48,19 +48,19 @@ qqgate rule     --config ../infra-config --repo xo-space          # ruleset rule
 qqgate verdict  --config ../infra-config --repo xo-space --sha <commit>   # or --observed checks.json
 ```
 
-Today: `xo-space` requires `xo-space-presubmit`, `innernet` requires `innernet-presubmit`.
+Today: `xo-space` requires `xo-space-presubmit`, `innernet` requires `innernet-presubmit`, `website` requires `website-presubmit`.
 xo-space's hand-written `tests` check is not required: the generated presubmit runs everything it
 ran, and V0-ONB-01 deletes `tests.yml`. `transitional_checks` in `settings/github.toml` can still add
 a hand-written check after the generated ones.
 
-"A red PR is refused" has two halves. CI here proves the gate's half: a red check on either repo
-gives a refusal. The live half needs the generated workflows delivered (xo-space #211, innernet
-#37), the rulesets applied (V0-ORG-03, suraj) and the manifests (V0-ONB-01/02).
+"A red PR is refused" has two halves. CI here proves the gate's half: a red check on xo-space or innernet
+gives a refusal (website too). The live half needs the generated workflows delivered (xo-space #211, innernet
+#37, website #1), the rulesets applied (V0-ORG-03, suraj) and the manifests (V0-ONB-01/02).
 
 ## Merge queue and rulesets (V0-ORG-03)
 
 `settings/github.toml` is the merge queue and rulesets as code, for all thirteen infra repos and
-both product repos. `qqgate settings plan` prints them, `verify` says which repos are safe to switch
+the three product repos (xo-space, innernet, website). `qqgate settings plan` prints them, `verify` says which repos are safe to switch
 on today (every required check must run on `pull_request` and `merge_group` there), and `apply`
 creates or updates them by name for ready repos only. An org admin runs one command,
 `scripts/apply.sh`; see [docs/apply-settings.md](docs/apply-settings.md).

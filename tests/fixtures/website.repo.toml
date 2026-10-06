@@ -1,0 +1,17 @@
+# Fixture: website's manifest as delivered in website #1 (head 6d4ebf6), comments trimmed.
+schema = "quirq-repo/1"
+
+[[targets]]
+name = "site"
+kind = "gatsby-site"
+srcs = ["src/**", "gatsby/**", "plugins/**", "scripts/**", "static/**", "contents/**", "functions/**", "patches/**", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "quirq.apps.json", "gatsby-browser.tsx", "gatsby-config.js", "gatsby-node.ts", "gatsby-ssr.js", "tailwind.config.js", "postcss.config.js", "tsconfig.json", "kea.js", "safelist.txt"]
+outs = ["public/"]
+
+[qq]
+version = "0.1.0"
+
+[toolchains.node]
+version = "24.21.0"
+
+[toolchains.node.platforms]
+linux-x86_64 = {source = "oci://ghcr.io/quirq-ai/toolchains/node@sha256:a84e067c794c73ba5ecf72064bcb6940e67f51f3fce7803edc54040e8c69a173", digest = "sha256:8c0ab89a2bc9a397f443ae9196ec95535e60e5ead1378a920cf44b2b2b392d01"}

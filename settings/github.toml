@@ -32,7 +32,9 @@ bypass_integration_ids = [5199903]     # quirq-release-executor
 # dry run (GET only) could not show that before the write. Every other repo keeps no bypass, depot's
 # qq-release-tags included: letting the executor write depot tags means installing the App on depot
 # and adding depot here, an explicit later change.
-executor_repos = ["release", "innernet", "xo-space"]
+# website too: release's lkgr moves every onboarded repo's lkgr ref (`qqrelease repos` at infra-config
+# 41a8cb0 lists xo-space, website, innernet), channels or not.
+executor_repos = ["release", "innernet", "xo-space", "website"]
 
 [reserved_tags]
 # Tags named like a branch. A tag called `main` satisfies a workflow's `github.ref_name == 'main'`
@@ -117,6 +119,16 @@ ref = "refs/heads/main"
 sha = "eaa2c88516fe8a8d9c581a65bebe9f9fbfae67c3"   # infra-config main at #19 (no concurrency)
 targets = ["innernet"]
 
+[[org_workflows]]
+ruleset = "qq-website-presubmit-pinned"
+enabled = false                      # see qq-xo-space-presubmit-pinned
+pinned = true
+repository = "infra-config"
+path = ".github/workflows/qq-required-website-presubmit.yml"
+ref = "refs/heads/main"
+sha = "41a8cb0a19e4f12ecb0d6407ba1155cd42c498ad"   # infra-config main at #32 (#31 added website)
+targets = ["website"]
+
 # --- product repos (required checks from infra-config) ---------------------------------------
 
 [[repo]]
@@ -141,6 +153,13 @@ transitional_checks = []
 # rollers keeps Dependabot rolls from auto-landing until its ROL-R6 clears, which these rules would
 # allow. Turning them on is this one line, in a reviewed gate PR.
 dependabot_branches = false
+
+[[repo]]
+name = "website"
+allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
+kind = "product"
+transitional_checks = []
+dependabot_branches = false           # no Dependabot roller for website yet (infra-config rollers.toml)
 
 # --- infra repos (hand-written presubmits, read from each repo's workflows on 2026-10-04) --------
 
