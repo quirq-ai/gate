@@ -45,7 +45,26 @@ def load_settings(backend: str, path: Path | None = None) -> dict:
         bad = [p for p in values if not _matches_nested(p)]
         if bad:
             raise GateError(f"{where}: {bad!r} {_NESTED}")
+    if "release_refs" in data:
+        _check_release_refs(data["release_refs"], [r.get("name") for r in data.get("repo", [])])
     return data
+
+
+def _check_release_refs(refs: dict, repos: list) -> None:
+    """The release executor's bypass: GitHub App ids (positive integers, the App ID, not its client id
+    or an installation id), and the repos it is installed on, the only ones that get the bypass."""
+    ids = refs.get("bypass_integration_ids")
+    if not isinstance(ids, list) or len(set(map(repr, ids))) != len(ids) or not all(
+            isinstance(i, int) and not isinstance(i, bool) and i > 0 for i in ids):
+        raise GateError(f"release_refs.bypass_integration_ids must be distinct positive integers (GitHub "
+                        f"App IDs), not {ids!r}")
+    where = refs.get("executor_repos", [])
+    if not isinstance(where, list) or len(set(map(repr, where))) != len(where) or not all(
+            isinstance(n, str) for n in where):
+        raise GateError(f"release_refs.executor_repos must be distinct repo names, not {where!r}")
+    unknown = sorted(set(where) - set(repos))
+    if unknown:
+        raise GateError(f"release_refs.executor_repos names repos not listed in settings: {unknown}")
 
 
 # GitHub matches ruleset ref patterns with fnmatch and FNM_PATHNAME (its ruleset docs), where a `**` that
@@ -90,7 +109,7 @@ def build(settings: dict, cfg: dict, config_root: Path) -> list[RepoPlan]:
         if len(set(checks)) != len(checks):
             raise GateError(f"{r['name']}: a required check is listed twice: {checks}")
         repo_settings(r)  # type-checked here too, so verify refuses a bad value
-        rulesets = mod.rulesets(settings, cfg, checks, **repo_options(r))
+        rulesets = mod.rulesets(settings, cfg, checks, **repo_options(r, settings))
         plans.append(RepoPlan(r["name"], r["kind"], checks, tuple(rulesets)))
     return plans
 
@@ -106,8 +125,9 @@ def repo_settings(r: dict) -> dict:
     return out
 
 
-def repo_options(r: dict) -> dict:
-    """Per-repo ruleset options from settings/<backend>.toml, type-checked."""
+def repo_options(r: dict, settings: dict | None = None) -> dict:
+    """Per-repo ruleset options from settings/<backend>.toml, type-checked. With `settings`, also
+    whether the release executor is installed on this repo ([release_refs] executor_repos)."""
     owners, size = r.get("code_owner_review", False), r.get("queue_group_size", 5)
     if not isinstance(owners, bool):
         raise GateError(f"{r['name']}: code_owner_review must be true or false, not {owners!r}")
@@ -129,8 +149,9 @@ def repo_options(r: dict) -> dict:
     bot = r.get("dependabot_branches", False)
     if not isinstance(bot, bool):
         raise GateError(f"{r['name']}: dependabot_branches must be true or false, not {bot!r}")
+    executor = r["name"] in (settings or {}).get("release_refs", {}).get("executor_repos", [])
     return {"code_owner_review": owners, "group_size": size, "state_branches": tuple(state),
-            "dependabot_branches": bot, "release_tags": tuple(tags)}
+            "dependabot_branches": bot, "release_tags": tuple(tags), "release_executor": executor}
 
 
 @dataclass
