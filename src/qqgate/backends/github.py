@@ -148,6 +148,9 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
         raise GateError(f"queue_group_size {group_size} must be 1 to 5")
     if main["bypass"]:
         raise GateError("settings [main] bypass must stay empty: nobody overrides the gate (policy change)")
+    default = main.get("required_approvals")
+    if isinstance(default, bool) or not isinstance(default, int) or not 0 <= default <= 10:
+        raise GateError(f"settings [main] required_approvals must be an integer from 0 to 10, not {default!r}")
     rules = [
         {"type": "deletion"},
         {"type": "non_fast_forward"},

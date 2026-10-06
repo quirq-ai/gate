@@ -1030,3 +1030,10 @@ def test_apply_writes_a_setting_without_overwrite(apply_env, config_root, tmp_pa
     assert main(_apply_args(config_root, tmp_path, "sync", extra=["--yes"])) == 0
     assert sent == [("PATCH", "https://api.github.com/repos/quirq-ai/sync", {"allow_auto_merge": True})]
     assert "quirq-ai/sync: update setting allow_auto_merge = true" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("bad", [-1, 11, True, False, "0", 0.0, None])   # None: the line removed
+def test_main_required_approvals_is_an_integer_from_0_to_10(s, cfg, config_root, bad):
+    s["main"]["required_approvals"] = bad
+    with pytest.raises(GateError, match=r"\[main\] required_approvals must be an integer from 0 to 10"):
+        settings.build(s, cfg, config_root)
