@@ -138,6 +138,25 @@ def test_code_owner_review_is_per_repo(s, cfg, config_root):
     assert owners("toolchains") is True and owners("release") is False and owners("sync") is False
 
 
+def test_product_repos_need_one_approval_and_infra_repos_none(s, cfg, config_root):
+    plans = plans_by_name(s, cfg, config_root)
+
+    def approvals(name):
+        pr = next(r for r in plans[name].rulesets[0]["rules"] if r["type"] == "pull_request")
+        return pr["parameters"]["required_approving_review_count"]
+    products = {r["name"] for r in cfg["repos"]["repo"]}
+    assert products == {"xo-space", "innernet", "website"}
+    for name in plans:
+        assert approvals(name) == (1 if name in products else 0), name
+
+
+@pytest.mark.parametrize("bad", [-1, 11, True, "1", 1.0])
+def test_required_approvals_is_an_integer_from_0_to_10(s, cfg, config_root, bad):
+    next(r for r in s["repo"] if r["name"] == "innernet")["required_approvals"] = bad
+    with pytest.raises(GateError, match="required_approvals must be an integer from 0 to 10"):
+        settings.build(s, cfg, config_root)
+
+
 def test_toolchains_queue_merges_one_pr_per_group(s, cfg, config_root):
     plans = plans_by_name(s, cfg, config_root)
 

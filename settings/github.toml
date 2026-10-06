@@ -12,7 +12,8 @@ owner = "quirq-ai"
 # One ruleset on the default branch of every repo below.
 ruleset = "qq-main"
 merge_method = "squash"                  # gate.toml [merge_queue]; suraj confirmed squash for every repo (2026-10-04)
-required_approvals = 0                   # code-owner review on the verification surface is V0-GAT-03
+required_approvals = 0                   # default; a [[repo]] can set its own (product repos: 1). Code-owner
+                                         # review on the verification surface is V0-GAT-03
 # Nobody bypasses the gate: no agent, and no admin. TODO(suraj): add an admin bypass only if you want a
 # break-glass path; it would be a policy change.
 bypass = []
@@ -135,6 +136,7 @@ targets = ["website"]
 name = "xo-space"
 allow_auto_merge = false              # suraj (2026-10-04): xo-space PRs land by his own "Merge when ready"
 kind = "product"
+required_approvals = 1               # product PRs need one approval (suraj, alpha decision 3, 2026-10-06)
 # tests.yml's `tests` is no longer required: the generated xo-space-presubmit runs everything it ran
 # (through pytest; xo-space #214 audit), and V0-ONB-01 deletes tests.yml, which a required `tests`
 # would block.
@@ -148,6 +150,7 @@ dependabot_branches = false
 name = "innernet"
 allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "product"
+required_approvals = 1               # product PRs need one approval (suraj, alpha decision 3, 2026-10-06)
 transitional_checks = []
 # Deferred (gate re-check D-1): the Dependabot app id below cannot be verified from here, and
 # rollers keeps Dependabot rolls from auto-landing until its ROL-R6 clears, which these rules would
@@ -158,6 +161,7 @@ dependabot_branches = false
 name = "website"
 allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "product"
+required_approvals = 1               # product PRs need one approval (suraj, alpha decision 3, 2026-10-06)
 transitional_checks = []
 dependabot_branches = false           # no Dependabot roller for website yet (infra-config rollers.toml)
 

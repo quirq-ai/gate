@@ -133,6 +133,11 @@ def repo_options(r: dict, settings: dict | None = None) -> dict:
         raise GateError(f"{r['name']}: code_owner_review must be true or false, not {owners!r}")
     if isinstance(size, bool) or not isinstance(size, int):
         raise GateError(f"{r['name']}: queue_group_size must be an integer, not {size!r}")
+    # Per repo; a repo without it takes [main] required_approvals. GitHub allows 0 to 10.
+    approvals = r.get("required_approvals")
+    if approvals is not None and (isinstance(approvals, bool) or not isinstance(approvals, int)
+                                  or not 0 <= approvals <= 10):
+        raise GateError(f"{r['name']}: required_approvals must be an integer from 0 to 10, not {approvals!r}")
     state = r.get("state_branches", [])
     if not isinstance(state, list) or len(set(state)) != len(state) or not all(
             isinstance(b, str) and re.fullmatch(r"[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*", b)
@@ -150,7 +155,8 @@ def repo_options(r: dict, settings: dict | None = None) -> dict:
     if not isinstance(bot, bool):
         raise GateError(f"{r['name']}: dependabot_branches must be true or false, not {bot!r}")
     executor = r["name"] in (settings or {}).get("release_refs", {}).get("executor_repos", [])
-    return {"code_owner_review": owners, "group_size": size, "state_branches": tuple(state),
+    return {"code_owner_review": owners, "required_approvals": approvals, "group_size": size,
+            "state_branches": tuple(state),
             "dependabot_branches": bot, "release_tags": tuple(tags), "release_executor": executor}
 
 
