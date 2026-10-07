@@ -78,7 +78,8 @@ example depot's launcher, which starts qq's own Python) are in `guard/terms.toml
 there is no inline pragma. Registered media types (`application/vnd.docker...`) are formats, not
 targets, and are skipped. Each core repo adds
 `qqgate guard --repo <name> .` to its presubmit (depot, test-pipelines, gardener and release do;
-sync does not yet). This repo's `settings-drift` job sweeps all six.
+sync does not yet). gate runs it in its own presubmit; this repo's `settings-drift` job sweeps the
+other five.
 
 ## Gate timing (V0-GAT-04)
 
@@ -102,11 +103,11 @@ is one sample.
 | Item | PR | State |
 | --- | --- | --- |
 | bootstrap | #1 | merged |
-| V0-GAT-01 | #2 | merged; no live refusal recorded yet (website's rulesets wait on the next settings run) |
-| V0-ORG-03 | #3, #5, #9, #10, #13, #14, #15, #16, #17, #20, #23, #24, #25, #26, #28 | merged; suraj ran `scripts/apply.sh` ([docs/apply-settings.md](docs/apply-settings.md)) at 6610664, which applied the repo rulesets. The settings merged since (#24 `allow_auto_merge`, #25 toolchains' `promotion-gate`, #26 the release executor bypass, #28 website) take effect only when the command runs at a later commit, and no such run is recorded. Org rulesets are all off: quirq-ai is on GitHub Free and suraj chose no org-wide rules; the Dependabot branch rules wait |
+| V0-GAT-01 | #2 | merged; no live refusal recorded yet |
+| V0-ORG-03 | #3, #5, #9, #10, #13, #14, #15, #16, #17, #20, #23, #24, #25, #26, #28 | merged; suraj ran `scripts/apply.sh` ([docs/apply-settings.md](docs/apply-settings.md)) at 6610664, which applied the repo rulesets. The settings merged since (#25 toolchains' `promotion-gate`, #26 the release executor bypass, #28 website) take effect only when the command runs at a later commit, and no such run is recorded. #24 `allow_auto_merge` was set by hand on 2026-10-04: it is on in every repo but xo-space and website, and the next run sets website. Org rulesets are all off: quirq-ai is on GitHub Free and suraj chose no org-wide rules; the Dependabot branch rules wait |
 | V0-GAT-02 | #4 | merged |
 | V0-GAT-03 | | waits on V0-ORG-02 (suraj's owners) |
-| V0-GAT-04 | #6 | merged; the sink reads QQ_QUEUED_AT (test-pipelines 1e3ddb1), and infra-config's generated gate builders run the timing step (#10, #20). The scorecard of 2026-10-07 shows gate time for xo-space (p50 2.1 min over 5 runs) and innernet (p50 0.9 min over 2 runs) |
+| V0-GAT-04 | #6 | merged; the sink reads QQ_QUEUED_AT (test-pipelines 1e3ddb1), and infra-config's generated gate builders run the timing step (infra-config #10, #20). The scorecard of 2026-10-07 shows gate time for xo-space (p50 2.1 min over 5 runs) and innernet (p50 0.9 min over 2 runs) |
 | not-onboarded exit 3 (for depot) | #7 | merged |
 
 ## Known conflict

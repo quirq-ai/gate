@@ -161,8 +161,9 @@ repos ready, website included. `verify` prints each repo's commit, so a repo tha
 clone and the run shows as not ready; the script clones it again.
 
 Last run: suraj ran the command at `6610664`, which applied the repo rulesets. Settings merged since
-(#24 `allow_auto_merge`, #25 toolchains' `promotion-gate`, #26 the release executor bypass, #28
-website) take effect only at the next run, and none is recorded yet. Until then website has no
+(#25 toolchains' `promotion-gate`, #26 the release executor bypass, #28 website) take effect only at
+the next run, and none is recorded yet. #24 `allow_auto_merge` was set by hand on 2026-10-04: it is
+on in every repo but xo-space and website, and the next run sets website. Until then website has no
 `qq-main` ruleset and no repo has the release executor bypass.
 
 ## Org rulesets (`--org`, needs admin:org)
@@ -237,8 +238,8 @@ command again; it sets the ruleset back to active.
 `plan     quirq-ai/<repo>: update setting allow_auto_merge = true (now false)` when GitHub differs,
 the same `yes` writes it (a PATCH of the repo), and a re-run shows it `unchanged`. With the merge
 queue on, auto-merge is how agent sessions put a PR in the queue (they have no GraphQL); it skips no
-required check or review. Settings turn it on in every repo but xo-space, where suraj lands PRs with his own
-"Merge when ready" (2026-10-04).
+required check or review. It is on in every repo but xo-space, where suraj lands PRs with his own
+"Merge when ready" (2026-10-04), and website, which the next run sets.
 
 ## Decisions for suraj (`TODO(suraj)` in `settings/github.toml`)
 
