@@ -156,9 +156,15 @@ is no less safe.
   `branches-ignore`) that leaves out the default branch; `pull_request` types without `opened` and
   `synchronize`, or `merge_group` types without `checks_requested`; a name used by two jobs.
 
-Status (from `settings verify` on fresh clones, 2026-10-04 14:05 UTC): every repo ready. `verify`
-prints each repo's commit, so a repo that moves between the clone and the run shows as not ready;
-the script clones it again.
+Status (from `settings verify` on fresh clones, 2026-10-07 15:37 UTC, gate `2a73334`): all 16
+repos ready, website included. `verify` prints each repo's commit, so a repo that moves between the
+clone and the run shows as not ready; the script clones it again.
+
+Last run: suraj ran the command at `6610664`, which applied the repo rulesets. Settings merged since
+(#25 toolchains' `promotion-gate`, #26 the release executor bypass, #28 website) take effect only at
+the next run, and none is recorded yet. #24 `allow_auto_merge` was set by hand on 2026-10-04: it is
+on in every repo but xo-space and website, and the next run sets website. Until then website has no
+`qq-main` ruleset and no repo has the release executor bypass.
 
 ## Org rulesets (`--org`, needs admin:org)
 
@@ -182,10 +188,10 @@ one on or off is a reviewed change to that file, after which the same command ap
   (toolchains #13: no `cancel-in-progress`, a 35-minute timeout). The pin fixes the workflow file;
   the gate tools it runs (`tools/gate.py`) still come from toolchains `main`, where `/tools/` needs
   suraj's code-owner approval (toolchains #14).
-- `qq-drift` (off): infra-config's `qq-drift.yml` in the product repos. Waits on that file only checking
-  the default branch against a pinned config, and on infra-config PR 24 (today its check-delivered
-  step would fail every xo-space PR on rollers' `qq-roll-land.yml`); then it is pinned and enabled
-  in a reviewed gate PR.
+- `qq-drift` (off): infra-config's `qq-drift.yml` in the product repos. The fixes it waited on are
+  merged in infra-config (#8: default branch only; #24: leaves rollers' `qq-roll-land.yml` alone;
+  #25, #26: checks a pinned config commit). It is off for the same reason as the others; turning it
+  on means pinning it and enabling it in a reviewed gate PR.
 
 `verify` (from the fresh clone, at its `sha`) and `apply --org` (again, through the API) both read
 each enabled entry's file and refuse it unless it runs on `merge_group` and a pull request event,
@@ -233,7 +239,7 @@ command again; it sets the ruleset back to active.
 the same `yes` writes it (a PATCH of the repo), and a re-run shows it `unchanged`. With the merge
 queue on, auto-merge is how agent sessions put a PR in the queue (they have no GraphQL); it skips no
 required check or review. It is on in every repo but xo-space, where suraj lands PRs with his own
-"Merge when ready" (2026-10-04).
+"Merge when ready" (2026-10-04), and website, which the next run sets.
 
 ## Decisions for suraj (`TODO(suraj)` in `settings/github.toml`)
 
