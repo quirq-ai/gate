@@ -258,7 +258,7 @@ def _on_main(source: str, commit: str) -> bool:
     """Is `commit` on `source`'s main? Asked in a fresh, empty repo, so no checkout's own git config
     (a second origin URL, an insteadOf rule) decides where git looks."""
     with tempfile.TemporaryDirectory(prefix="qqgate-pin-") as d:
-        return (settings._git(Path(d), "init", "--quiet") is not None
+        return (settings._git(Path(d), "init", "--quiet", "--template=") is not None
                 and settings._git(Path(d), "fetch", "--quiet", "--filter=tree:0", source, "refs/heads/main") is not None
                 and settings._git(Path(d), "merge-base", "--is-ancestor", commit, "FETCH_HEAD") is not None)
 

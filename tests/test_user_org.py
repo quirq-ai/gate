@@ -391,6 +391,20 @@ def test_user_apply_refuses_a_settings_file_changed_during_the_plan(user_apply, 
     assert "changed while the plan was computed" in capsys.readouterr().err
 
 
+def test_user_apply_checks_the_bytes_it_parsed(user_apply, monkeypatch):
+    """Audit R2-2: apply parses the very bytes it later compares, not a second read of the file."""
+    f, argv = user_apply
+    monkeypatch.setattr(github, "plan_repo", lambda owner, repo, wanted, token: [])
+    load, seen = settings.load_user_settings, []
+
+    def spy(path, raw=None):
+        seen.append(raw)
+        return load(path, raw)
+    monkeypatch.setattr(settings, "load_user_settings", spy)
+    assert main(argv) == 0
+    assert seen and seen[0] == f.read_bytes()
+
+
 def test_user_verify_warns_on_failed_commit_checks(user_apply, monkeypatch, capsys):
     """Audit 4: verify in --settings mode runs the commit checks (it warns, like pins.toml's), and its
     plan child gets the same --settings and --infra-config."""
@@ -510,6 +524,24 @@ def test_check_shows_unreadable_items_as_warnings(recorded, user_file, capsys):
     assert "WARNING  innernet: could not read its rulesets" in out
     # GitHub answers 404 Not Found when the caller cannot see it: that is unreadable, not "none"
     assert "WARNING  innernet: could not read classic branch protection on main" in out
+    assert "no classic branch protection" not in out
+
+
+def test_check_treats_a_plain_404_on_protection_as_unreadable(recorded, user_file, monkeypatch, capsys):
+    """Audit R2-1: the repo itself is readable, but /protection answers 404 without "Branch not protected"
+    (a token that cannot see protection): that is unreadable, not "none"."""
+    send = github._send
+
+    def plain_404(method, url, token, body=None):
+        if url.endswith("/repos/acme/website/branches/main/protection"):
+            recorded.append((method, url))
+            raise GateError(f'GitHub API GET {url}: 404 Not Found: {{"message":"Not Found"}}')
+        return send(method, url, token, body)
+    monkeypatch.setattr(github, "_send", plain_404)
+    assert _check(user_file(), "website") == 1
+    out = capsys.readouterr().out
+    assert "ok       website: visibility public" in out
+    assert "WARNING  website: could not read classic branch protection on main" in out
     assert "no classic branch protection" not in out
 
 
