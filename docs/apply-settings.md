@@ -267,8 +267,13 @@ required check or review. It is on in every repo but xo-space, where suraj lands
   `release-state`, in `[release_refs] bypass_integration_ids`: set to 5199903 on 2026-10-05, from
   command 1's output. The client id (`Iv23...`) is refused, but an installation id is a number too
   and would be accepted silently, so a later change must copy the App ID from the App's General page.
-- Approvals: `required_approvals = 0` today, because every PR here comes from an agent account and
-  you cannot approve your own PRs. Code-owner review on tests and `infra/` is V0-GAT-03.
+- Approvals: per repo. `[main] required_approvals = 0` is the default, and the 13 infra repos keep
+  it: their PRs land on green checks alone. Product repos (xo-space, innernet, website) set
+  `required_approvals = 1` (suraj, alpha decision 3, 2026-10-06). GitHub never counts the PR
+  author's own approval, and a push after an approval dismisses it. So an agent PR, opened by the
+  agent account, needs suraj's approval after the agent's last push. A product PR opened under
+  suraj's own account needs another account with write access, which on innernet and website may
+  be only the agent account. Code-owner review on tests and `infra/` is V0-GAT-03.
 
 Done-when check after applying: `git push origin HEAD:main` to any written repo is refused, and a PR
 lands only through the merge queue.

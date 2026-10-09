@@ -135,7 +135,7 @@ def _status_checks_rule(names) -> dict:
 
 
 def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_review: bool = False,
-             group_size: int = 5, state_branches: tuple[str, ...] = (),
+             required_approvals: int | None = None, group_size: int = 5, state_branches: tuple[str, ...] = (),
              dependabot_branches: bool = False, release_tags: tuple[str, ...] = (),
              release_executor: bool = False, executor_branches: tuple[str, ...] = ()) -> list[dict]:
     """V0-ORG-03: the repository rulesets (REST: POST /repos/{o}/{r}/rulesets) for one repo."""
@@ -148,11 +148,16 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
         raise GateError(f"queue_group_size {group_size} must be 1 to 5")
     if main["bypass"]:
         raise GateError("settings [main] bypass must stay empty: nobody overrides the gate (policy change)")
+    default = main.get("required_approvals")
+    if isinstance(default, bool) or not isinstance(default, int) or not 0 <= default <= 10:
+        raise GateError(f"settings [main] required_approvals must be an integer from 0 to 10, not {default!r}")
     rules = [
         {"type": "deletion"},
         {"type": "non_fast_forward"},
         {"type": "pull_request", "parameters": {
-            "required_approving_review_count": main["required_approvals"],
+            # Per repo (settings required_approvals), else [main]'s.
+            "required_approving_review_count": (main["required_approvals"] if required_approvals is None
+                                                else required_approvals),
             "dismiss_stale_reviews_on_push": True,
             # Per repo (settings code_owner_review); it only bites for paths CODEOWNERS gives owners.
             "require_code_owner_review": code_owner_review,
