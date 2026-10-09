@@ -367,10 +367,11 @@ def _token(child_ran: bool = True) -> str:
     """The admin token, read only after the plan child has exited: while infra-config code runs, no
     credential is in this process (a same-user child can read its parent's environment)."""
     token = os.environ.get("QQ_GITHUB_TOKEN")
-    if token and child_ran:
-        print("WARNING  QQ_GITHUB_TOKEN was in this process's environment while infra-config's code ran in "
-              "the plan child, which can read it; leave it unset and qqgate asks `gh auth token` afterwards",
-              flush=True)
+    if token:
+        if child_ran:
+            print("WARNING  QQ_GITHUB_TOKEN was in this process's environment while infra-config's code ran in "
+                  "the plan child, which can read it; leave it unset and qqgate asks `gh auth token` afterwards",
+                  flush=True)
         return token
     try:
         r = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=60)
