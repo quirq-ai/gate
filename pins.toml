@@ -3,7 +3,7 @@
 
 [infra-config]
 source = "https://github.com/quirq-ai/infra-config"
-commit = "c6f3dab22f6aa8a700bbe5f459ff775f6925e269"   # PLACEHOLDER: infra-config #35 head; becomes its merged commit
+commit = "b344eaf848b43f6096b0247c9b21ca6ed10b08a8"   # #35 names qq (depot renamed 2026-10-09); brings in #33, #34
 
 [sync]
 source = "https://github.com/quirq-ai/sync"
