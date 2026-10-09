@@ -3,7 +3,7 @@
 
 [infra-config]
 source = "https://github.com/quirq-ai/infra-config"
-commit = "41a8cb0a19e4f12ecb0d6407ba1155cd42c498ad"   # 29 commits on from 12c1f4f (#4 to #32); #31 onboards website
+commit = "b344eaf848b43f6096b0247c9b21ca6ed10b08a8"   # #35 names qq (depot renamed 2026-10-09); brings in #33, #34
 
 [sync]
 source = "https://github.com/quirq-ai/sync"

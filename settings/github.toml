@@ -30,12 +30,14 @@ tags = ["lkgr", "channels/**/*"]
 bypass_integration_ids = [5199903]     # quirq-release-executor
 # The bypass lands only in these repos' qq-release-refs-* (and qq-release-tags), the repos the App is
 # installed on: GitHub may refuse an Integration bypass for an App not installed on a repo, and the
-# dry run (GET only) could not show that before the write. Every other repo keeps no bypass, depot's
-# qq-release-tags included: letting the executor write depot tags means installing the App on depot
-# and adding depot here, an explicit later change.
+# dry run (GET only) could not show that before the write. Every other repo keeps no bypass, qq's
+# qq-release-tags included: letting the executor write qq tags means installing the App on qq
+# and adding qq here, an explicit later change.
 # website too: release's lkgr moves every onboarded repo's lkgr ref (`qqrelease repos` at infra-config
 # 41a8cb0 lists xo-space, website, innernet), channels or not.
 executor_repos = ["release", "innernet", "xo-space", "website"]
+# A repo's executor_branches (state branches only the executor may write) get this ruleset.
+state_ruleset = "qq-release-state"
 
 [reserved_tags]
 # Tags named like a branch. A tag called `main` satisfies a workflow's `github.ref_name == 'main'`
@@ -174,17 +176,17 @@ kind = "infra"
 checks = ["validate"]                # qq-drift skips itself here; it is the org workflow below
 
 [[repo]]
-name = "depot"
+name = "qq"
 allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
 kind = "infra"
-# Every tag is trusted by depot's pins: a version-only pin (xo-space and innernet `[qq] version`)
+# Every tag is trusted by qq's pins: a version-only pin (xo-space and innernet `[qq] version`)
 # installs tag v<version>, and a git: digest must be on a branch or tag (src/qqdepot/pin.py). Nobody
-# may create, move or delete one, not even an admin or the release executor until depot is in
+# may create, move or delete one, not even an admin or the release executor until qq is in
 # [release_refs] executor_repos, so v0.1.0 cannot be cut until then. A git: digest must be on main or a v* tag
-# (depot #16), and main is locked by qq-main.
+# (qq #16), and main is locked by qq-main.
 release_tags = ["**/*"]              # every tag, nested ones too (`**` alone is one level)
 # `parity` is a matrix; parity-compare aggregates it but needs `if: always()` and a check that every
-# leg succeeded, or a failed leg skips it and GitHub counts the skip as a pass. Asked of depot.
+# leg succeeded, or a failed leg skips it and GitHub counts the skip as a pass. Asked of qq.
 checks = ["test", "parity-compare"]
 
 [[repo]]
@@ -269,9 +271,13 @@ kind = "infra"
 checks = ["presubmit"]
 # No code_owner_review: suraj chose a fully autonomous release on 2026-10-05 (he reverts what he
 # dislikes). So any green PR can land a workflow on main that uses the executor App's key.
-# channels.json and operation keys; same rules as gardener's. TODO(suraj): once the release executor
-# identity exists, restrict updates here to it (like qq-release-refs), not just deletion and force-push.
+# channels.json and operation keys; same rules as gardener's (qq-state-branches: no deletion or
+# force-push). qq-release-state on top: only the release executor App creates or updates it
+# (canary-app steps, step 5). Break-glass: an org owner sets qq-release-state to Disabled AND deletes
+# the QQ_RELEASE_CLIENT_ID variable in release (workflows then push with their own token, the mode
+# before command 2). Restore: set the variable again first, then re-apply (docs/apply-settings.md).
 state_branches = ["release-state"]
+executor_branches = ["release-state"]
 
 [[repo]]
 name = "installer"

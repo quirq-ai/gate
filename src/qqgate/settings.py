@@ -46,11 +46,15 @@ def load_settings(backend: str, path: Path | None = None) -> dict:
         if bad:
             raise GateError(f"{where}: {bad!r} {_NESTED}")
     if "release_refs" in data:
-        _check_release_refs(data["release_refs"], [r.get("name") for r in data.get("repo", [])])
+        refs = data["release_refs"]
+        taken = {"qq-state-branches", "qq-release-tags", f"{refs.get('ruleset')}-branches",
+                 f"{refs.get('ruleset')}-tags"} | {data.get(k, {}).get("ruleset") for k in (
+                     "main", "reserved_tags", "dependabot")} | {w.get("ruleset") for w in data.get("org_workflows", [])}
+        _check_release_refs(refs, [r.get("name") for r in data.get("repo", [])], taken)
     return data
 
 
-def _check_release_refs(refs: dict, repos: list) -> None:
+def _check_release_refs(refs: dict, repos: list, taken: set) -> None:
     """The release executor's bypass: GitHub App ids (positive integers, the App ID, not its client id
     or an installation id), and the repos it is installed on, the only ones that get the bypass."""
     ids = refs.get("bypass_integration_ids")
@@ -62,6 +66,9 @@ def _check_release_refs(refs: dict, repos: list) -> None:
     if not isinstance(where, list) or len(set(map(repr, where))) != len(where) or not all(
             isinstance(n, str) for n in where):
         raise GateError(f"release_refs.executor_repos must be distinct repo names, not {where!r}")
+    name = refs.get("state_ruleset", "qq-release-state")
+    if not isinstance(name, str) or not re.fullmatch(r"qq-[a-z0-9-]+", name) or name in taken:
+        raise GateError(f"release_refs.state_ruleset must be its own qq-* ruleset name, not {name!r}")
     unknown = sorted(set(where) - set(repos))
     if unknown:
         raise GateError(f"release_refs.executor_repos names repos not listed in settings: {unknown}")
@@ -151,13 +158,24 @@ def repo_options(r: dict, settings: dict | None = None) -> dict:
         raise GateError(f"{r['name']}: release_tags must be distinct tag name patterns (no refs/), not {tags!r}")
     if not all(_matches_nested(t) for t in tags):
         raise GateError(f"{r['name']}: release_tags {tags!r} {_NESTED}")
+    mine = r.get("executor_branches", [])
+    if not isinstance(mine, list) or not mine and "executor_branches" in r or not all(
+            isinstance(b, str) and b in state for b in mine) or len(set(mine)) != len(mine):
+        raise GateError(f"{r['name']}: executor_branches must be distinct names from its state_branches, "
+                        f"not {mine!r}")
     bot = r.get("dependabot_branches", False)
     if not isinstance(bot, bool):
         raise GateError(f"{r['name']}: dependabot_branches must be true or false, not {bot!r}")
-    executor = r["name"] in (settings or {}).get("release_refs", {}).get("executor_repos", [])
+    refs = (settings or {}).get("release_refs", {})
+    executor = r["name"] in refs.get("executor_repos", [])
+    if mine and settings is not None and not (executor and refs.get("bypass_integration_ids")):
+        # Without the App's bypass nobody could write these branches, the executor included.
+        raise GateError(f"{r['name']}: executor_branches need the release executor's App ID in "
+                        f"[release_refs] bypass_integration_ids and {r['name']!r} in executor_repos")
     return {"code_owner_review": owners, "required_approvals": approvals, "group_size": size,
             "state_branches": tuple(state),
-            "dependabot_branches": bot, "release_tags": tuple(tags), "release_executor": executor}
+            "dependabot_branches": bot, "release_tags": tuple(tags), "release_executor": executor,
+            "executor_branches": tuple(mine)}
 
 
 @dataclass

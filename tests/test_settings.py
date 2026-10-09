@@ -58,7 +58,7 @@ def test_release_refs_are_locked_to_the_release_executor(s, cfg, config_root):
 
 
 def test_release_executor_bypass_only_where_its_app_is_installed(s, cfg, config_root):
-    """The App id lands only in executor_repos' release refs; depot's release tags and every other
+    """The App id lands only in executor_repos' release refs; qq's release tags and every other
     repo keep no bypass (an Integration bypass for an App not installed may be refused mid-apply)."""
     assert s["release_refs"]["executor_repos"] == ["release", "innernet", "xo-space", "website"]
     s["release_refs"]["bypass_integration_ids"] = [123456]
@@ -68,6 +68,47 @@ def test_release_executor_bypass_only_where_its_app_is_installed(s, cfg, config_
         want = app if name in ("release", "innernet", "xo-space", "website") else []
         assert by["qq-release-refs-branches"] == want and by["qq-release-refs-tags"] == want, name
         assert by["qq-main"] == [] and by.get("qq-release-tags", []) == [], name
+
+
+def test_release_state_is_written_only_by_the_release_executor(s, cfg, config_root):
+    """Step 5: exactly this ruleset on release (canary-app audit S4); qq-state-branches stays too."""
+    s["release_refs"]["bypass_integration_ids"] = [123456]
+    plans = plans_by_name(s, cfg, config_root)
+    by = {r["name"]: r for r in plans["release"].rulesets}
+    assert by["qq-release-state"] == {
+        "name": "qq-release-state", "target": "branch", "enforcement": "active",
+        "bypass_actors": [{"actor_id": 123456, "actor_type": "Integration", "bypass_mode": "always"}],
+        "conditions": {"ref_name": {"include": ["refs/heads/release-state"], "exclude": []}},
+        "rules": [{"type": "creation"}, {"type": "update"}, {"type": "deletion"}, {"type": "non_fast_forward"}]}
+    assert by["qq-state-branches"]["bypass_actors"] == []
+    assert by["qq-state-branches"]["conditions"]["ref_name"]["include"] == ["refs/heads/release-state"]
+    assert [n for n, p in plans.items() if "qq-release-state" in {r["name"] for r in p.rulesets}] == ["release"]
+
+
+def test_executor_branches_need_the_app(s, cfg, config_root):
+    """Without the App's bypass nobody could write release-state, so the plan refuses instead."""
+    s["release_refs"]["bypass_integration_ids"] = []
+    with pytest.raises(GateError, match="executor_branches need the release executor's App ID"):
+        settings.build(s, cfg, config_root)
+    s["release_refs"]["bypass_integration_ids"] = [123456]
+    s["release_refs"]["executor_repos"] = ["innernet", "xo-space"]
+    with pytest.raises(GateError, match="executor_branches need"):
+        settings.build(s, cfg, config_root)
+
+
+@pytest.mark.parametrize("name", [5, "qq-main", "qq-state-branches", "qq-release-refs-tags", "Release State"])
+def test_release_state_ruleset_name_is_its_own(name):
+    s = settings.load_settings("github")
+    taken = {"qq-main", "qq-state-branches", "qq-release-refs-tags"}
+    with pytest.raises(GateError, match="state_ruleset must be its own"):
+        settings._check_release_refs({**s["release_refs"], "state_ruleset": name}, [], taken)
+
+
+@pytest.mark.parametrize("bad", [["ledger"], ["release-state", "release-state"], "release-state", [],
+                                 [["release-state"]]])
+def test_executor_branches_are_state_branches(bad):
+    with pytest.raises(GateError, match="executor_branches must be distinct names from its state_branches"):
+        settings.repo_options({"name": "release", "state_branches": ["release-state"], "executor_branches": bad})
 
 
 @pytest.mark.parametrize("ids", [[0], [-1], ["123"], [True], [1.5], [7, 7], 7, ["<App ID>"], None])
@@ -110,6 +151,9 @@ def test_website_is_onboarded_like_innernet(s, cfg, config_root, ids, website_ex
     """Same rulesets as innernet apart from its check name and executor membership, which is
     compared on its own so the test holds whichever repos [release_refs] names."""
     s["release_refs"]["bypass_integration_ids"] = ids
+    if not ids:   # executor_branches are refused without the App id, so drop release's for this case
+        for r in s["repo"]:
+            r.pop("executor_branches", None)
     if not website_executes:
         s["release_refs"]["executor_repos"].remove("website")
     plans = plans_by_name(s, cfg, config_root)
@@ -904,14 +948,14 @@ def test_verify_runs_infra_config_code_only_in_the_child(apply_env, config_root,
 
 
 def test_depot_tags_that_pins_trust_are_locked(s, cfg, config_root):
-    """depot pins trust its tags (a version-only pin installs tag v<version>; a git: digest must be
+    """qq pins trust its tags (a version-only pin installs tag v<version>; a git: digest must be
     on a branch or tag), so nobody but the release executor may create, move or delete one."""
     plans = plans_by_name(s, cfg, config_root)
-    rs = {r["name"]: r for r in plans["depot"].rulesets}["qq-release-tags"]
+    rs = {r["name"]: r for r in plans["qq"].rulesets}["qq-release-tags"]
     assert rs["target"] == "tag" and rs["conditions"]["ref_name"]["include"] == ["refs/tags/**/*"]
     assert {r["type"] for r in rs["rules"]} == {"creation", "update", "deletion", "non_fast_forward"}
-    assert rs["bypass_actors"] == []   # depot is not in [release_refs] executor_repos
-    assert all("qq-release-tags" not in {r["name"] for r in p.rulesets} for n, p in plans.items() if n != "depot")
+    assert rs["bypass_actors"] == []   # qq is not in [release_refs] executor_repos
+    assert all("qq-release-tags" not in {r["name"] for r in p.rulesets} for n, p in plans.items() if n != "qq")
 
 
 @pytest.mark.parametrize("bad", [["refs/tags/v*"], ["v*", "v*"], "v*", ["a b"], ["**"], ["v/**"]])

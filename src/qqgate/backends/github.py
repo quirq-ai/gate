@@ -137,7 +137,7 @@ def _status_checks_rule(names) -> dict:
 def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_review: bool = False,
              required_approvals: int | None = None, group_size: int = 5, state_branches: tuple[str, ...] = (),
              dependabot_branches: bool = False, release_tags: tuple[str, ...] = (),
-             release_executor: bool = False) -> list[dict]:
+             release_executor: bool = False, executor_branches: tuple[str, ...] = ()) -> list[dict]:
     """V0-ORG-03: the repository rulesets (REST: POST /repos/{o}/{r}/rulesets) for one repo."""
     main, refs = settings["main"], settings["release_refs"]
     method = main["merge_method"].upper()
@@ -192,6 +192,17 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
                   "conditions": {"ref_name": {"include": [f"refs/heads/{b}" for b in state_branches],
                                               "exclude": []}},
                   "rules": [{"type": "deletion"}, {"type": "non_fast_forward"}]}]
+    if executor_branches:
+        # State branches only the release executor may write (release-state: channels.json and
+        # operation keys). qq-state-branches still applies on top: rulesets stack, so even the
+        # executor cannot delete or force-push them.
+        if not bypass:
+            raise GateError("executor_branches need the release executor's bypass")
+        state.append({"name": refs["state_ruleset"], "target": "branch", "enforcement": "active",
+                      "bypass_actors": bypass,
+                      "conditions": {"ref_name": {"include": [f"refs/heads/{b}" for b in executor_branches],
+                                                  "exclude": []}},
+                      "rules": lock})
     # A tag named like a branch (`main`) satisfies a workflow's `github.ref_name == 'main'` test, and
     # wins over a state branch of its name on a short-name `git fetch` (release audit), so nobody may
     # create, move or delete a tag named like `main` or any repo's state branch. (lkgr and channels/**/*
@@ -203,7 +214,7 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
                   "conditions": {"ref_name": {"include": [f"refs/tags/{t}" for t in names], "exclude": []}},
                   "rules": lock})
     if release_tags:
-        # Tags a pin trusts (depot: a version-only pin installs tag v<version>, and a git: digest
+        # Tags a pin trusts (qq: a version-only pin installs tag v<version>, and a git: digest
         # must be on a branch or tag): nobody but the release executor may create, move or delete
         # them, the same bypass as lkgr and channels/**/*.
         state.append({"name": "qq-release-tags", "target": "tag", "enforcement": "active", "bypass_actors": bypass,
