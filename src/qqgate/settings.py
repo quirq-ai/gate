@@ -31,12 +31,15 @@ class RepoPlan:
     rulesets: tuple[dict, ...]
 
 
-def load_settings(backend: str, path: Path | None = None) -> dict:
+def load_settings(backend: str, path: Path | None = None, data: dict | None = None) -> dict:
+    """Settings from `path` (default: gate's own settings/<backend>.toml), checked; `data` is that
+    file already parsed, so a caller that checked its bytes checks the same content."""
     path = path or SETTINGS / f"{backend}.toml"
-    if not path.is_file():
-        raise GateError(f"no settings for backend {backend!r} ({path})")
-    with path.open("rb") as f:
-        data = tomllib.load(f)
+    if data is None:
+        if not path.is_file():
+            raise GateError(f"no settings for backend {backend!r} ({path})")
+        with path.open("rb") as f:
+            data = tomllib.load(f)
     patterns = {"release_refs.branches": data.get("release_refs", {}).get("branches", []),
                 "release_refs.tags": data.get("release_refs", {}).get("tags", []),
                 "reserved_tags.names": data.get("reserved_tags", {}).get("names", []),
@@ -45,6 +48,9 @@ def load_settings(backend: str, path: Path | None = None) -> dict:
         bad = [p for p in values if not _matches_nested(p)]
         if bad:
             raise GateError(f"{where}: {bad!r} {_NESTED}")
+    if path == SETTINGS / f"{backend}.toml" and "release_refs" not in data:
+        # Optional only in a user org's file (`--settings`), which gets no release-refs rulesets.
+        raise GateError(f"{path}: [release_refs] is missing")
     if "release_refs" in data:
         refs = data["release_refs"]
         taken = {"qq-state-branches", "qq-release-tags", f"{refs.get('ruleset')}-branches",
@@ -52,6 +58,99 @@ def load_settings(backend: str, path: Path | None = None) -> dict:
                      "main", "reserved_tags", "dependabot")} | {w.get("ruleset") for w in data.get("org_workflows", [])}
         _check_release_refs(refs, [r.get("name") for r in data.get("repo", [])], taken)
     return data
+
+
+# A user org's settings (`qqgate settings --settings FILE`, the one-command setup in quirq-ai/setup)
+# get only qq-main and qq-reserved-tags, under these fixed names: gate treats rulesets of those names as
+# its own, and setup's undo text names them. Anything else (release refs, Dependabot, org rulesets,
+# per-repo options) is quirq's own settings/github.toml only.
+USER_RULESETS = {"main": "qq-main", "reserved_tags": "qq-reserved-tags"}
+USER_CONFIG_REPO = "qq-config"   # a user org's one infra repo (infra-config qqcfg USER_CONFIG_REPO)
+_USER_KEYS = {"org": {"owner"}, "main": {"ruleset", "merge_method", "required_approvals", "bypass"},
+              "reserved_tags": {"ruleset", "names"}}
+_OWNER = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
+_REPO = re.compile(r"[A-Za-z0-9._-]{1,100}")
+_CHECK = re.compile(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,99}")
+
+
+def _name_ok(name: object) -> bool:
+    """A repo or tag name GitHub accepts: not `.` or `..`, and not ending in `.git`."""
+    return (isinstance(name, str) and bool(_REPO.fullmatch(name)) and name not in (".", "..")
+            and not name.lower().endswith(".git"))
+
+
+def load_user_settings(path: Path, raw: bytes | None = None) -> dict:
+    """A user org's settings file, checked so that it can only ever write qq-main and
+    qq-reserved-tags to its own org's repos. quirq-ai's rulesets come only from the reviewed
+    settings/github.toml (CODEOWNERS), so its owner is refused here in any letter case. The file is
+    read and parsed once (`raw`: bytes the caller already read), so every check sees one content."""
+    try:
+        raw = Path(path).read_bytes() if raw is None else raw
+        data = tomllib.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
+        raise GateError(f"--settings {path}: {e}") from None
+    extra = sorted(set(data) - {*_USER_KEYS, "repo"})
+    if extra:  # before load_settings, which would check a [release_refs] it then accepts
+        raise GateError(f"{path}: sections {extra} are not allowed in a user org's settings; only [org], [main], "
+                        "[reserved_tags] and [[repo]]")
+    data = load_settings("github", Path(path), data)
+    builtin = load_settings("github")["org"]["owner"]
+    for section, keys in _USER_KEYS.items():
+        if not isinstance(data.get(section), dict):
+            raise GateError(f"{path}: [{section}] is missing")
+        bad = sorted(set(data[section]) - keys)
+        if bad:
+            raise GateError(f"{path}: [{section}] keys {bad} are not allowed; only {sorted(keys)}")
+    owner = data["org"].get("owner")
+    if not isinstance(owner, str) or not _OWNER.fullmatch(owner):
+        raise GateError(f"{path}: [org] owner must be a GitHub org name, not {owner!r}")
+    if owner.lower() == builtin.lower():
+        raise GateError(f"{path}: [org] owner {owner!r} is {builtin}, whose rulesets come only from gate's own "
+                        "settings/github.toml")
+    if owner != owner.lower():  # as qqcfg's code_host, and the clone URLs readiness compares exactly
+        raise GateError(f"{path}: [org] owner {owner!r} must be lower case ({owner.lower()!r})")
+    for section, name in USER_RULESETS.items():
+        if data[section].setdefault("ruleset", name) != name:
+            raise GateError(f"{path}: [{section}] ruleset must be {name!r}, not {data[section]['ruleset']!r}")
+    approvals = data["main"].get("required_approvals")
+    if isinstance(approvals, bool) or not isinstance(approvals, int) or not 0 <= approvals <= 10:
+        raise GateError(f"{path}: [main] required_approvals must be an integer from 0 to 10, not {approvals!r}")
+    if not isinstance(data["main"].get("merge_method"), str):
+        raise GateError(f"{path}: [main] merge_method is missing (gate.toml's, squash)")
+    if data["main"].setdefault("bypass", []) != []:
+        raise GateError(f"{path}: [main] bypass must stay empty: nobody overrides the gate")
+    names = data["reserved_tags"].get("names")
+    if not isinstance(names, list) or not names or not all(_name_ok(n) for n in names):
+        raise GateError(f"{path}: [reserved_tags] names must be a non-empty list of tag names, not {names!r}")
+    repos = data.get("repo")
+    if not isinstance(repos, list) or not repos:
+        raise GateError(f"{path}: no [[repo]] entries")
+    for r in repos:
+        name, kind = r.get("name"), r.get("kind")
+        if not _name_ok(name):
+            raise GateError(f"{path}: [[repo]] name must be a repo name, not {name!r}")
+        keys = {"name", "kind", "checks"} if name == USER_CONFIG_REPO else {"name", "kind"}
+        if kind != ("infra" if name == USER_CONFIG_REPO else "product"):
+            raise GateError(f"{path}: {name}: kind must be 'product' (or 'infra' for {USER_CONFIG_REPO!r} only), "
+                            f"not {kind!r}")
+        bad = sorted(set(r) - keys)
+        if bad:
+            raise GateError(f"{path}: {name}: keys {bad} are not allowed; only {sorted(keys)}")
+        checks = r.get("checks", [])
+        if not isinstance(checks, list) or not all(isinstance(c, str) and _CHECK.fullmatch(c) for c in checks):
+            raise GateError(f"{path}: {name}: checks must be a list of check names, not {checks!r}")
+    if [r["name"] for r in repos if r["kind"] == "infra"] != [USER_CONFIG_REPO]:
+        raise GateError(f"{path}: list exactly one infra repo, {USER_CONFIG_REPO!r}")
+    return data
+
+
+def check_user_owner(s: dict, code_host: object) -> None:
+    """A user org's settings write only to the org its qq-config names (org.toml code_host).
+    GitHub owner names ignore case."""
+    owner = s["org"]["owner"]
+    host = code_host if isinstance(code_host, str) else ""
+    if not host.startswith("github.com/") or host.removeprefix("github.com/").lower() != owner.lower():
+        raise GateError(f"settings [org] owner {owner!r} is not the owner in the config's code_host {code_host!r}")
 
 
 def _check_release_refs(refs: dict, repos: list, taken: set) -> None:
@@ -369,7 +468,7 @@ def readiness(plan: RepoPlan, checkout: Path, allow_conditional: tuple[str, ...]
 def _git(checkout: Path, *args: str) -> str | None:
     try:
         # No user or system git config: an insteadOf rule could point ls-remote at a mirror.
-        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0"}
         r = subprocess.run(["git", "-C", str(checkout), *args], capture_output=True, text=True, timeout=60, env=env)
     except (OSError, subprocess.TimeoutExpired):
         return None

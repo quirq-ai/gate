@@ -139,7 +139,8 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
              dependabot_branches: bool = False, release_tags: tuple[str, ...] = (),
              release_executor: bool = False, executor_branches: tuple[str, ...] = ()) -> list[dict]:
     """V0-ORG-03: the repository rulesets (REST: POST /repos/{o}/{r}/rulesets) for one repo."""
-    main, refs = settings["main"], settings["release_refs"]
+    # release_refs is optional only in a user org's settings (load_settings requires it in gate's own).
+    main, refs = settings["main"], settings.get("release_refs")
     method = main["merge_method"].upper()
     if method.lower() != cfg["gate"]["merge_queue"]["merge_method"]:
         raise GateError(f"settings merge_method {main['merge_method']!r} differs from gate.toml's "
@@ -182,7 +183,7 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
     # GitHub may refuse an Integration bypass for an App not installed on the repo, and the dry run
     # (GET only) could not show that before the write.
     bypass = [{"actor_id": i, "actor_type": "Integration", "bypass_mode": "always"}
-              for i in refs["bypass_integration_ids"]] if release_executor else []
+              for i in refs["bypass_integration_ids"]] if release_executor and refs else []
     lock = [{"type": t} for t in ("creation", "update", "deletion", "non_fast_forward")]
     state = []
     if state_branches:
@@ -230,9 +231,11 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
                                          "bypass_mode": "always"}],
                       "conditions": {"ref_name": {"include": [bot["branches"]], "exclude": []}},
                       "rules": [{"type": "update"}, {"type": "non_fast_forward"}]})
-    return [
-        {"name": main["ruleset"], "target": "branch", "enforcement": "active", "bypass_actors": [],
-         "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": rules},
+    out = [{"name": main["ruleset"], "target": "branch", "enforcement": "active", "bypass_actors": [],
+            "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}, "rules": rules}]
+    if refs is None:
+        return out + state
+    return out + [
         {"name": refs["ruleset"] + "-branches", "target": "branch", "enforcement": "active", "bypass_actors": bypass,
          "conditions": {"ref_name": {"include": [f"refs/heads/{b}" for b in refs["branches"]], "exclude": []}},
          "rules": lock},
@@ -338,6 +341,95 @@ def existing_protection(owner: str, repo: str, ours: set[str], token: str) -> li
               if r["name"] not in ours]
     if others:
         out.append(f"other rulesets apply too: {', '.join(others)}")
+    return out
+
+
+def check_repo(owner: str, repo: str, ours: set[str], approvals: int, token: str) -> list[tuple[str, str]]:
+    """`settings check` for one repo, GETs only and whatever its readiness: ("warning" | "ok", line)
+    for what already protects it (as existing_protection: squash off, classic protection, other
+    rulesets), the reviews they require, its visibility and its Actions permissions. Anything it
+    cannot read is a warning, never "none". It reads no config, so it does not compare the owner with
+    qq-config's code_host; `settings plan`, which setup also runs before the user's yes, does."""
+    out: list[tuple[str, str]] = []
+    base = f"{API}/repos/{owner}/{repo}"
+
+    def read(what: str, url: str, absent: str = ""):
+        try:
+            return _send("GET", url, token)
+        except GateError as e:
+            # GitHub also answers 404 ("Not Found") when the caller cannot see it: only its own
+            # `absent` message means there is none.
+            if absent and " 404 " in str(e) and absent in str(e):
+                return None
+            out.append(("warning", f"could not read {what}: {e}"))
+            return False
+
+    info = read("the repo", base)
+    branch = "main"
+    if isinstance(info, dict):
+        branch = info.get("default_branch") or "main"
+        visibility = info.get("visibility")
+        if visibility == "public":
+            out.append(("ok", "visibility public"))
+        else:  # plan.md limits: v0 gates public repos only
+            out.append(("warning", f"visibility {visibility or 'unknown'}: the merge queue on a repo that is not "
+                                   "public needs GitHub Enterprise Cloud, so v0 gates public repos only"))
+        squash = info.get("allow_squash_merge")
+        if squash is False:
+            out.append(("warning", "squash merging is turned off for this repo, and the merge queue squashes; turn "
+                                   "it on in Settings > General > Pull Requests"))
+        elif squash is None:
+            out.append(("warning", "could not read whether squash merging is on (needs admin on the repo)"))
+    b = urllib.parse.quote(branch, safe="")
+    prot = read(f"classic branch protection on {branch}", f"{base}/branches/{b}/protection",
+                absent="Branch not protected" if isinstance(info, dict) else "")
+    if prot is None:
+        out.append(("ok", f"no classic branch protection on {branch}"))
+    elif isinstance(prot, dict):
+        checks = ((prot.get("required_status_checks") or {}).get("contexts")) or []
+        out.append(("warning", f"classic branch protection on {branch} (required checks: {', '.join(checks) or 'none'}); "
+                               "it stacks with the rulesets, so remove it or make sure its checks run on merge_group"))
+        reviews = prot.get("required_pull_request_reviews")
+        if isinstance(reviews, dict):
+            out.append(("warning", f"classic branch protection on {branch} requires pull request reviews "
+                                   f"({reviews.get('required_approving_review_count', 'count unknown')} approving)"))
+    live = read("its rulesets", f"{base}/rulesets?includes_parents=true&per_page=100")
+    names = {}
+    if isinstance(live, list):
+        names = {r.get("id"): r.get("name") for r in live if isinstance(r, dict)}
+        others = [str(n) for n in names.values() if n not in ours]
+        if others:
+            out.append(("warning", f"other rulesets apply too: {', '.join(others)}"))
+    rules = read(f"the ruleset rules on {branch}", f"{base}/rules/branches/{b}?per_page=100")
+    if isinstance(rules, list):
+        for r in rules:
+            if not isinstance(r, dict) or r.get("type") != "pull_request":
+                continue
+            n = (r.get("parameters") or {}).get("required_approving_review_count")
+            name = names.get(r.get("ruleset_id"), f"id {r.get('ruleset_id')}")
+            if name in ours:
+                out.append(("ok", f"ruleset {name} requires {n} approving review(s) on {branch}"))
+            elif n != 0:
+                out.append(("warning", f"ruleset {name} requires {n} approving review(s) on {branch}"))
+    actions = read("its Actions permissions", f"{base}/actions/permissions")
+    if isinstance(actions, dict):
+        allowed = actions.get("allowed_actions")
+        if actions.get("enabled") is not True:
+            out.append(("warning", "GitHub Actions is off, so no required check can run and the queue would wait "
+                                   "forever"))
+        elif allowed != "all":
+            out.append(("warning", f"Actions allows only {allowed or 'unknown'} actions; the generated workflows use "
+                                   "actions from other repos, so check they are allowed"))
+        else:
+            out.append(("ok", "Actions on, all actions allowed"))
+    wf = read("its Actions workflow permissions", f"{base}/actions/permissions/workflow")
+    if isinstance(wf, dict):
+        approve = wf.get("can_approve_pull_request_reviews")
+        out.append(("ok", f"workflow token {wf.get('default_workflow_permissions')}, can approve pull requests: "
+                          f"{approve}"))
+        if approve is not False and approvals > 0:
+            out.append(("warning", "GitHub Actions can approve pull requests, so a workflow could approve its own PR; "
+                                   "turn it off in Settings > Actions > General > Workflow permissions"))
     return out
 
 

@@ -68,6 +68,15 @@ on today (every required check must run on `pull_request` and `merge_group` ther
 creates or updates them by name for ready repos only. An org admin runs one command,
 `scripts/apply.sh`; see [docs/apply-settings.md](docs/apply-settings.md).
 
+A user org (the one-command setup, quirq-ai/setup) passes its own file with `--settings FILE`
+(from [templates/user-org-settings.toml](templates/user-org-settings.toml)), `--config` its data-only
+`qq-config` checkout, `--infra-config` infra-config at `qq-config`'s `qq.toml` pin
+(`[infra-config] commit`) and, for `verify` and `apply`, `--config-commit`. Such a file gets only
+`qq-main` and `qq-reserved-tags`, never for quirq-ai, and `apply.sh` never passes these flags.
+`qqgate settings check --settings FILE` reads (GETs only) what already protects each of its repos.
+Run qqgate from a gate checkout installed with `pip install -e`, as `apply.sh` does: it reads
+`settings/` and `pins.toml` from that checkout.
+
 ## Agnosticism guard (V0-GAT-02)
 
 `qqgate guard --repo <core repo> [ROOT]` fails if shipped code in a core repo (qq, sync, gate,
