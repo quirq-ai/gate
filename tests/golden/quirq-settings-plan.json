@@ -1,0 +1,2831 @@
+{
+  "(backend)": "github",
+  "(gate)": {
+    "merge_method": "squash",
+    "max_minutes": 40
+  },
+  "xo-space": {
+    "kind": "product",
+    "required": [
+      "xo-space-presubmit"
+    ],
+    "rulesets": [
+      {
+        "name": "qq-main",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          },
+          {
+            "type": "pull_request",
+            "parameters": {
+              "required_approving_review_count": 1,
+              "dismiss_stale_reviews_on_push": true,
+              "require_code_owner_review": false,
+              "require_last_push_approval": false,
+              "required_review_thread_resolution": false,
+              "allowed_merge_methods": [
+                "squash"
+              ]
+            }
+          },
+          {
+            "type": "merge_queue",
+            "parameters": {
+              "check_response_timeout_minutes": 40,
+              "grouping_strategy": "ALLGREEN",
+              "max_entries_to_build": 5,
+              "max_entries_to_merge": 5,
+              "merge_method": "SQUASH",
+              "min_entries_to_merge": 1,
+              "min_entries_to_merge_wait_minutes": 5
+            }
+          },
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "xo-space-presubmit",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [
+          {
+            "actor_id": 5199903,
+            "actor_type": "Integration",
+            "bypass_mode": "always"
+          }
+        ],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/lkgr",
+              "refs/heads/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [
+          {
+            "actor_id": 5199903,
+            "actor_type": "Integration",
+            "bypass_mode": "always"
+          }
+        ],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/lkgr",
+              "refs/tags/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-reserved-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/main",
+              "refs/tags/ledger",
+              "refs/tags/perf-data",
+              "refs/tags/release-state",
+              "refs/tags/results",
+              "refs/tags/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      }
+    ]
+  },
+  "innernet": {
+    "kind": "product",
+    "required": [
+      "innernet-presubmit"
+    ],
+    "rulesets": [
+      {
+        "name": "qq-main",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          },
+          {
+            "type": "pull_request",
+            "parameters": {
+              "required_approving_review_count": 1,
+              "dismiss_stale_reviews_on_push": true,
+              "require_code_owner_review": false,
+              "require_last_push_approval": false,
+              "required_review_thread_resolution": false,
+              "allowed_merge_methods": [
+                "squash"
+              ]
+            }
+          },
+          {
+            "type": "merge_queue",
+            "parameters": {
+              "check_response_timeout_minutes": 40,
+              "grouping_strategy": "ALLGREEN",
+              "max_entries_to_build": 5,
+              "max_entries_to_merge": 5,
+              "merge_method": "SQUASH",
+              "min_entries_to_merge": 1,
+              "min_entries_to_merge_wait_minutes": 5
+            }
+          },
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "innernet-presubmit",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [
+          {
+            "actor_id": 5199903,
+            "actor_type": "Integration",
+            "bypass_mode": "always"
+          }
+        ],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/lkgr",
+              "refs/heads/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [
+          {
+            "actor_id": 5199903,
+            "actor_type": "Integration",
+            "bypass_mode": "always"
+          }
+        ],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/lkgr",
+              "refs/tags/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-reserved-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/main",
+              "refs/tags/ledger",
+              "refs/tags/perf-data",
+              "refs/tags/release-state",
+              "refs/tags/results",
+              "refs/tags/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      }
+    ]
+  },
+  "website": {
+    "kind": "product",
+    "required": [
+      "website-presubmit"
+    ],
+    "rulesets": [
+      {
+        "name": "qq-main",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          },
+          {
+            "type": "pull_request",
+            "parameters": {
+              "required_approving_review_count": 1,
+              "dismiss_stale_reviews_on_push": true,
+              "require_code_owner_review": false,
+              "require_last_push_approval": false,
+              "required_review_thread_resolution": false,
+              "allowed_merge_methods": [
+                "squash"
+              ]
+            }
+          },
+          {
+            "type": "merge_queue",
+            "parameters": {
+              "check_response_timeout_minutes": 40,
+              "grouping_strategy": "ALLGREEN",
+              "max_entries_to_build": 5,
+              "max_entries_to_merge": 5,
+              "merge_method": "SQUASH",
+              "min_entries_to_merge": 1,
+              "min_entries_to_merge_wait_minutes": 5
+            }
+          },
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "website-presubmit",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [
+          {
+            "actor_id": 5199903,
+            "actor_type": "Integration",
+            "bypass_mode": "always"
+          }
+        ],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/lkgr",
+              "refs/heads/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [
+          {
+            "actor_id": 5199903,
+            "actor_type": "Integration",
+            "bypass_mode": "always"
+          }
+        ],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/lkgr",
+              "refs/tags/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-reserved-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/main",
+              "refs/tags/ledger",
+              "refs/tags/perf-data",
+              "refs/tags/release-state",
+              "refs/tags/results",
+              "refs/tags/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      }
+    ]
+  },
+  "infra-config": {
+    "kind": "infra",
+    "required": [
+      "validate"
+    ],
+    "rulesets": [
+      {
+        "name": "qq-main",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          },
+          {
+            "type": "pull_request",
+            "parameters": {
+              "required_approving_review_count": 0,
+              "dismiss_stale_reviews_on_push": true,
+              "require_code_owner_review": false,
+              "require_last_push_approval": false,
+              "required_review_thread_resolution": false,
+              "allowed_merge_methods": [
+                "squash"
+              ]
+            }
+          },
+          {
+            "type": "merge_queue",
+            "parameters": {
+              "check_response_timeout_minutes": 40,
+              "grouping_strategy": "ALLGREEN",
+              "max_entries_to_build": 5,
+              "max_entries_to_merge": 5,
+              "merge_method": "SQUASH",
+              "min_entries_to_merge": 1,
+              "min_entries_to_merge_wait_minutes": 5
+            }
+          },
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "validate",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/lkgr",
+              "refs/heads/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/lkgr",
+              "refs/tags/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-reserved-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/main",
+              "refs/tags/ledger",
+              "refs/tags/perf-data",
+              "refs/tags/release-state",
+              "refs/tags/results",
+              "refs/tags/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      }
+    ]
+  },
+  "qq": {
+    "kind": "infra",
+    "required": [
+      "test",
+      "parity-compare"
+    ],
+    "rulesets": [
+      {
+        "name": "qq-main",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          },
+          {
+            "type": "pull_request",
+            "parameters": {
+              "required_approving_review_count": 0,
+              "dismiss_stale_reviews_on_push": true,
+              "require_code_owner_review": false,
+              "require_last_push_approval": false,
+              "required_review_thread_resolution": false,
+              "allowed_merge_methods": [
+                "squash"
+              ]
+            }
+          },
+          {
+            "type": "merge_queue",
+            "parameters": {
+              "check_response_timeout_minutes": 40,
+              "grouping_strategy": "ALLGREEN",
+              "max_entries_to_build": 5,
+              "max_entries_to_merge": 5,
+              "merge_method": "SQUASH",
+              "min_entries_to_merge": 1,
+              "min_entries_to_merge_wait_minutes": 5
+            }
+          },
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "test",
+                  "integration_id": 15368
+                },
+                {
+                  "context": "parity-compare",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/lkgr",
+              "refs/heads/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/lkgr",
+              "refs/tags/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-reserved-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/main",
+              "refs/tags/ledger",
+              "refs/tags/perf-data",
+              "refs/tags/release-state",
+              "refs/tags/results",
+              "refs/tags/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      }
+    ]
+  },
+  "sync": {
+    "kind": "infra",
+    "required": [
+      "test"
+    ],
+    "rulesets": [
+      {
+        "name": "qq-main",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          },
+          {
+            "type": "pull_request",
+            "parameters": {
+              "required_approving_review_count": 0,
+              "dismiss_stale_reviews_on_push": true,
+              "require_code_owner_review": false,
+              "require_last_push_approval": false,
+              "required_review_thread_resolution": false,
+              "allowed_merge_methods": [
+                "squash"
+              ]
+            }
+          },
+          {
+            "type": "merge_queue",
+            "parameters": {
+              "check_response_timeout_minutes": 40,
+              "grouping_strategy": "ALLGREEN",
+              "max_entries_to_build": 5,
+              "max_entries_to_merge": 5,
+              "merge_method": "SQUASH",
+              "min_entries_to_merge": 1,
+              "min_entries_to_merge_wait_minutes": 5
+            }
+          },
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "test",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/lkgr",
+              "refs/heads/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/lkgr",
+              "refs/tags/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-reserved-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/main",
+              "refs/tags/ledger",
+              "refs/tags/perf-data",
+              "refs/tags/release-state",
+              "refs/tags/results",
+              "refs/tags/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      }
+    ]
+  },
+  "recipes": {
+    "kind": "infra",
+    "required": [
+      "presubmit"
+    ],
+    "rulesets": [
+      {
+        "name": "qq-main",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          },
+          {
+            "type": "pull_request",
+            "parameters": {
+              "required_approving_review_count": 0,
+              "dismiss_stale_reviews_on_push": true,
+              "require_code_owner_review": false,
+              "require_last_push_approval": false,
+              "required_review_thread_resolution": false,
+              "allowed_merge_methods": [
+                "squash"
+              ]
+            }
+          },
+          {
+            "type": "merge_queue",
+            "parameters": {
+              "check_response_timeout_minutes": 40,
+              "grouping_strategy": "ALLGREEN",
+              "max_entries_to_build": 5,
+              "max_entries_to_merge": 5,
+              "merge_method": "SQUASH",
+              "min_entries_to_merge": 1,
+              "min_entries_to_merge_wait_minutes": 5
+            }
+          },
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "presubmit",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/lkgr",
+              "refs/heads/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/lkgr",
+              "refs/tags/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-reserved-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/main",
+              "refs/tags/ledger",
+              "refs/tags/perf-data",
+              "refs/tags/release-state",
+              "refs/tags/results",
+              "refs/tags/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      }
+    ]
+  },
+  "test-pipelines": {
+    "kind": "infra",
+    "required": [
+      "presubmit"
+    ],
+    "rulesets": [
+      {
+        "name": "qq-main",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          },
+          {
+            "type": "pull_request",
+            "parameters": {
+              "required_approving_review_count": 0,
+              "dismiss_stale_reviews_on_push": true,
+              "require_code_owner_review": false,
+              "require_last_push_approval": false,
+              "required_review_thread_resolution": false,
+              "allowed_merge_methods": [
+                "squash"
+              ]
+            }
+          },
+          {
+            "type": "merge_queue",
+            "parameters": {
+              "check_response_timeout_minutes": 40,
+              "grouping_strategy": "ALLGREEN",
+              "max_entries_to_build": 5,
+              "max_entries_to_merge": 5,
+              "merge_method": "SQUASH",
+              "min_entries_to_merge": 1,
+              "min_entries_to_merge_wait_minutes": 5
+            }
+          },
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "presubmit",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/lkgr",
+              "refs/heads/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/lkgr",
+              "refs/tags/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-state-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/results"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-reserved-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/main",
+              "refs/tags/ledger",
+              "refs/tags/perf-data",
+              "refs/tags/release-state",
+              "refs/tags/results",
+              "refs/tags/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      }
+    ]
+  },
+  "gate": {
+    "kind": "infra",
+    "required": [
+      "presubmit"
+    ],
+    "rulesets": [
+      {
+        "name": "qq-main",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          },
+          {
+            "type": "pull_request",
+            "parameters": {
+              "required_approving_review_count": 0,
+              "dismiss_stale_reviews_on_push": true,
+              "require_code_owner_review": false,
+              "require_last_push_approval": false,
+              "required_review_thread_resolution": false,
+              "allowed_merge_methods": [
+                "squash"
+              ]
+            }
+          },
+          {
+            "type": "merge_queue",
+            "parameters": {
+              "check_response_timeout_minutes": 40,
+              "grouping_strategy": "ALLGREEN",
+              "max_entries_to_build": 5,
+              "max_entries_to_merge": 5,
+              "merge_method": "SQUASH",
+              "min_entries_to_merge": 1,
+              "min_entries_to_merge_wait_minutes": 5
+            }
+          },
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "presubmit",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/lkgr",
+              "refs/heads/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/lkgr",
+              "refs/tags/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-reserved-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/main",
+              "refs/tags/ledger",
+              "refs/tags/perf-data",
+              "refs/tags/release-state",
+              "refs/tags/results",
+              "refs/tags/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      }
+    ]
+  },
+  "toolchains": {
+    "kind": "infra",
+    "required": [
+      "ci",
+      "promotion-gate"
+    ],
+    "rulesets": [
+      {
+        "name": "qq-main",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          },
+          {
+            "type": "pull_request",
+            "parameters": {
+              "required_approving_review_count": 0,
+              "dismiss_stale_reviews_on_push": true,
+              "require_code_owner_review": true,
+              "require_last_push_approval": false,
+              "required_review_thread_resolution": false,
+              "allowed_merge_methods": [
+                "squash"
+              ]
+            }
+          },
+          {
+            "type": "merge_queue",
+            "parameters": {
+              "check_response_timeout_minutes": 40,
+              "grouping_strategy": "ALLGREEN",
+              "max_entries_to_build": 1,
+              "max_entries_to_merge": 1,
+              "merge_method": "SQUASH",
+              "min_entries_to_merge": 1,
+              "min_entries_to_merge_wait_minutes": 5
+            }
+          },
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "ci",
+                  "integration_id": 15368
+                },
+                {
+                  "context": "promotion-gate",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/lkgr",
+              "refs/heads/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/lkgr",
+              "refs/tags/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-reserved-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/main",
+              "refs/tags/ledger",
+              "refs/tags/perf-data",
+              "refs/tags/release-state",
+              "refs/tags/results",
+              "refs/tags/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      }
+    ]
+  },
+  "remote-build": {
+    "kind": "infra",
+    "required": [
+      "presubmit",
+      "cross-backend"
+    ],
+    "rulesets": [
+      {
+        "name": "qq-main",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          },
+          {
+            "type": "pull_request",
+            "parameters": {
+              "required_approving_review_count": 0,
+              "dismiss_stale_reviews_on_push": true,
+              "require_code_owner_review": false,
+              "require_last_push_approval": false,
+              "required_review_thread_resolution": false,
+              "allowed_merge_methods": [
+                "squash"
+              ]
+            }
+          },
+          {
+            "type": "merge_queue",
+            "parameters": {
+              "check_response_timeout_minutes": 40,
+              "grouping_strategy": "ALLGREEN",
+              "max_entries_to_build": 5,
+              "max_entries_to_merge": 5,
+              "merge_method": "SQUASH",
+              "min_entries_to_merge": 1,
+              "min_entries_to_merge_wait_minutes": 5
+            }
+          },
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "presubmit",
+                  "integration_id": 15368
+                },
+                {
+                  "context": "cross-backend",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/lkgr",
+              "refs/heads/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/lkgr",
+              "refs/tags/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-reserved-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/main",
+              "refs/tags/ledger",
+              "refs/tags/perf-data",
+              "refs/tags/release-state",
+              "refs/tags/results",
+              "refs/tags/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      }
+    ]
+  },
+  "perf": {
+    "kind": "infra",
+    "required": [
+      "presubmit",
+      "measure-result"
+    ],
+    "rulesets": [
+      {
+        "name": "qq-main",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          },
+          {
+            "type": "pull_request",
+            "parameters": {
+              "required_approving_review_count": 0,
+              "dismiss_stale_reviews_on_push": true,
+              "require_code_owner_review": false,
+              "require_last_push_approval": false,
+              "required_review_thread_resolution": false,
+              "allowed_merge_methods": [
+                "squash"
+              ]
+            }
+          },
+          {
+            "type": "merge_queue",
+            "parameters": {
+              "check_response_timeout_minutes": 40,
+              "grouping_strategy": "ALLGREEN",
+              "max_entries_to_build": 5,
+              "max_entries_to_merge": 5,
+              "merge_method": "SQUASH",
+              "min_entries_to_merge": 1,
+              "min_entries_to_merge_wait_minutes": 5
+            }
+          },
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "presubmit",
+                  "integration_id": 15368
+                },
+                {
+                  "context": "measure-result",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/lkgr",
+              "refs/heads/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/lkgr",
+              "refs/tags/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-state-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/perf-data"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-reserved-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/main",
+              "refs/tags/ledger",
+              "refs/tags/perf-data",
+              "refs/tags/release-state",
+              "refs/tags/results",
+              "refs/tags/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      }
+    ]
+  },
+  "gardener": {
+    "kind": "infra",
+    "required": [
+      "presubmit"
+    ],
+    "rulesets": [
+      {
+        "name": "qq-main",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          },
+          {
+            "type": "pull_request",
+            "parameters": {
+              "required_approving_review_count": 0,
+              "dismiss_stale_reviews_on_push": true,
+              "require_code_owner_review": false,
+              "require_last_push_approval": false,
+              "required_review_thread_resolution": false,
+              "allowed_merge_methods": [
+                "squash"
+              ]
+            }
+          },
+          {
+            "type": "merge_queue",
+            "parameters": {
+              "check_response_timeout_minutes": 40,
+              "grouping_strategy": "ALLGREEN",
+              "max_entries_to_build": 5,
+              "max_entries_to_merge": 5,
+              "merge_method": "SQUASH",
+              "min_entries_to_merge": 1,
+              "min_entries_to_merge_wait_minutes": 5
+            }
+          },
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "presubmit",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/lkgr",
+              "refs/heads/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/lkgr",
+              "refs/tags/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-state-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/ledger",
+              "refs/heads/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-reserved-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/main",
+              "refs/tags/ledger",
+              "refs/tags/perf-data",
+              "refs/tags/release-state",
+              "refs/tags/results",
+              "refs/tags/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      }
+    ]
+  },
+  "rollers": {
+    "kind": "infra",
+    "required": [
+      "test"
+    ],
+    "rulesets": [
+      {
+        "name": "qq-main",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          },
+          {
+            "type": "pull_request",
+            "parameters": {
+              "required_approving_review_count": 0,
+              "dismiss_stale_reviews_on_push": true,
+              "require_code_owner_review": false,
+              "require_last_push_approval": false,
+              "required_review_thread_resolution": false,
+              "allowed_merge_methods": [
+                "squash"
+              ]
+            }
+          },
+          {
+            "type": "merge_queue",
+            "parameters": {
+              "check_response_timeout_minutes": 40,
+              "grouping_strategy": "ALLGREEN",
+              "max_entries_to_build": 5,
+              "max_entries_to_merge": 5,
+              "merge_method": "SQUASH",
+              "min_entries_to_merge": 1,
+              "min_entries_to_merge_wait_minutes": 5
+            }
+          },
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "test",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/lkgr",
+              "refs/heads/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/lkgr",
+              "refs/tags/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-reserved-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/main",
+              "refs/tags/ledger",
+              "refs/tags/perf-data",
+              "refs/tags/release-state",
+              "refs/tags/results",
+              "refs/tags/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      }
+    ]
+  },
+  "release": {
+    "kind": "infra",
+    "required": [
+      "presubmit"
+    ],
+    "rulesets": [
+      {
+        "name": "qq-main",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          },
+          {
+            "type": "pull_request",
+            "parameters": {
+              "required_approving_review_count": 0,
+              "dismiss_stale_reviews_on_push": true,
+              "require_code_owner_review": false,
+              "require_last_push_approval": false,
+              "required_review_thread_resolution": false,
+              "allowed_merge_methods": [
+                "squash"
+              ]
+            }
+          },
+          {
+            "type": "merge_queue",
+            "parameters": {
+              "check_response_timeout_minutes": 40,
+              "grouping_strategy": "ALLGREEN",
+              "max_entries_to_build": 5,
+              "max_entries_to_merge": 5,
+              "merge_method": "SQUASH",
+              "min_entries_to_merge": 1,
+              "min_entries_to_merge_wait_minutes": 5
+            }
+          },
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "presubmit",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [
+          {
+            "actor_id": 5199903,
+            "actor_type": "Integration",
+            "bypass_mode": "always"
+          }
+        ],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/lkgr",
+              "refs/heads/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [
+          {
+            "actor_id": 5199903,
+            "actor_type": "Integration",
+            "bypass_mode": "always"
+          }
+        ],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/lkgr",
+              "refs/tags/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-state-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/release-state"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-state",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [
+          {
+            "actor_id": 5199903,
+            "actor_type": "Integration",
+            "bypass_mode": "always"
+          }
+        ],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/release-state"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-reserved-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/main",
+              "refs/tags/ledger",
+              "refs/tags/perf-data",
+              "refs/tags/release-state",
+              "refs/tags/results",
+              "refs/tags/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      }
+    ]
+  },
+  "installer": {
+    "kind": "infra",
+    "required": [
+      "presubmit"
+    ],
+    "rulesets": [
+      {
+        "name": "qq-main",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          },
+          {
+            "type": "pull_request",
+            "parameters": {
+              "required_approving_review_count": 0,
+              "dismiss_stale_reviews_on_push": true,
+              "require_code_owner_review": false,
+              "require_last_push_approval": false,
+              "required_review_thread_resolution": false,
+              "allowed_merge_methods": [
+                "squash"
+              ]
+            }
+          },
+          {
+            "type": "merge_queue",
+            "parameters": {
+              "check_response_timeout_minutes": 40,
+              "grouping_strategy": "ALLGREEN",
+              "max_entries_to_build": 5,
+              "max_entries_to_merge": 5,
+              "merge_method": "SQUASH",
+              "min_entries_to_merge": 1,
+              "min_entries_to_merge_wait_minutes": 5
+            }
+          },
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "presubmit",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/lkgr",
+              "refs/heads/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/lkgr",
+              "refs/tags/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-reserved-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/main",
+              "refs/tags/ledger",
+              "refs/tags/perf-data",
+              "refs/tags/release-state",
+              "refs/tags/results",
+              "refs/tags/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      }
+    ]
+  },
+  "(org)": [
+    {
+      "ruleset": "qq-drift",
+      "enabled": false,
+      "repository": "infra-config",
+      "path": ".github/workflows/qq-drift.yml",
+      "ref": "refs/heads/main",
+      "targets": [
+        "innernet",
+        "website",
+        "xo-space"
+      ]
+    },
+    {
+      "ruleset": "qq-toolchains-promotion-gate",
+      "enabled": false,
+      "repository": "toolchains",
+      "path": ".github/workflows/promotion-gate.yml",
+      "ref": "refs/heads/main",
+      "sha": "eb71c8e54eae5ea4a2d27096f1f197dfe91bd8f2",
+      "targets": [
+        "toolchains"
+      ]
+    },
+    {
+      "ruleset": "qq-xo-space-presubmit-pinned",
+      "enabled": false,
+      "pinned": true,
+      "repository": "infra-config",
+      "path": ".github/workflows/qq-required-xo-space-presubmit.yml",
+      "ref": "refs/heads/main",
+      "sha": "eaa2c88516fe8a8d9c581a65bebe9f9fbfae67c3",
+      "targets": [
+        "xo-space"
+      ]
+    },
+    {
+      "ruleset": "qq-innernet-presubmit-pinned",
+      "enabled": false,
+      "pinned": true,
+      "repository": "infra-config",
+      "path": ".github/workflows/qq-required-innernet-presubmit.yml",
+      "ref": "refs/heads/main",
+      "sha": "eaa2c88516fe8a8d9c581a65bebe9f9fbfae67c3",
+      "targets": [
+        "innernet"
+      ]
+    },
+    {
+      "ruleset": "qq-website-presubmit-pinned",
+      "enabled": false,
+      "pinned": true,
+      "repository": "infra-config",
+      "path": ".github/workflows/qq-required-website-presubmit.yml",
+      "ref": "refs/heads/main",
+      "sha": "41a8cb0a19e4f12ecb0d6407ba1155cd42c498ad",
+      "targets": [
+        "website"
+      ]
+    }
+  ]
+}

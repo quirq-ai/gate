@@ -12,6 +12,13 @@
         pull_request and merge_group there). apply: create or update the rulesets of ready repos; dry
         run unless --yes. Needs an admin token in QQ_GITHUB_TOKEN; the plan is computed in a child
         process without it. --org also applies the enabled org rulesets (admin:org).
+        With --settings FILE --infra-config DIR (one-command setup): a user org's qq-main and
+        qq-reserved-tags, from FILE, with --config a data-only qq-config checkout whose qqcfg code comes
+        from --infra-config; verify and apply also need --config-commit SHA.
+    qqgate settings check --settings FILE [--repo NAME]
+        Read-only (GETs): what already protects each repo in FILE (classic protection, other rulesets,
+        required reviews, squash off), its visibility and Actions permissions, whatever its
+        readiness. Exit 0 no warnings, 1 warnings, 2 error. Loads no config and no infra-config code.
     qqgate guard --repo NAME [ROOT]   (V0-GAT-02)
         Fail if a core repo's shipped code names a language, build tool or deploy target.
     qqgate queued-at [--event FILE] [--repository OWNER/NAME] [--json]   (V0-GAT-04)
@@ -88,10 +95,38 @@ def cmd_verdict(args) -> int:
     return 0 if v.passed else 1
 
 
+def _user_mode(args) -> bool:
+    """`--settings FILE`: a user org's settings (one-command setup), never gate's own file. The flags
+    exist only on `settings` and have no environment variable; scripts/apply.sh never passes them."""
+    if getattr(args, "settings", None) is None:
+        if getattr(args, "infra_config", None) or getattr(args, "config_commit", None):
+            raise GateError("--infra-config and --config-commit go with --settings")
+        return False
+    if getattr(args, "org", False):
+        raise GateError("--org is not available with --settings: a user org gets no org rulesets")
+    return True
+
+
+def _settings_file(args) -> tuple[dict, Path]:
+    """The settings this run uses, and the file they come from."""
+    if _user_mode(args):
+        path = Path(args.settings).resolve()
+        return settings.load_user_settings(path), path
+    return settings.load_settings("github"), settings.SETTINGS / "github.toml"
+
+
 def _plans(args):
-    cfg = config.load(Path(args.config), validate=not args.no_validate)
+    user = _user_mode(args)
+    cfg = config.load(Path(args.config), validate=not args.no_validate,
+                      code=Path(args.infra_config) if user else None)
     backend = cfg["gate"]["merge_queue"]["backend"]
-    s = settings.load_settings(backend)
+    if user:
+        if backend != "github":
+            raise GateError(f"config names backend {backend!r}; a user org's settings are for 'github'")
+        s = settings.load_user_settings(Path(args.settings).resolve())
+        settings.check_user_owner(s, cfg["org"]["org"].get("code_host"))
+    else:
+        s = settings.load_settings(backend)
     plans = settings.build(s, cfg, Path(args.config))
     if args.repo:
         plans = [p for p in plans if p.name in args.repo]
@@ -130,6 +165,8 @@ def _plan_without_token(args) -> dict:
     product repos' required check names and gate.toml's merge method and admission limit."""
     cmd = [sys.executable, "-c", "import sys; from qqgate.cli import main; sys.exit(main(sys.argv[1:]))",
            "settings", "plan", "--config", str(Path(args.config).resolve())]
+    if _user_mode(args):  # the child checks and plans the same file the parent read (and re-reads after)
+        cmd += ["--settings", str(Path(args.settings).resolve()), "--infra-config", str(Path(args.infra_config).resolve())]
     for r in args.repo or ():
         cmd += ["--repo", r]
     if args.no_validate:
@@ -209,6 +246,62 @@ def _config_at_pin(config_root: Path) -> str | None:
     return None
 
 
+def _origin(checkout: Path) -> str:
+    """origin's URL, lower case and without .git or a trailing slash (GitHub names ignore case)."""
+    url = settings._git(checkout, "config", "--get", "remote.origin.url") or ""
+    return url.rstrip("/").removesuffix(".git").lower()
+
+
+def _infra_config_source() -> str:
+    """quirq-ai/infra-config, as pins.toml names it."""
+    return tomllib.loads((Path(__file__).resolve().parents[2] / "pins.toml").read_text())["infra-config"]["source"]
+
+
+def _user_commits(args, s: dict) -> str | None:
+    """None when --config is exactly qq-config's --config-commit (clean, from the settings owner's
+    qq-config) and --infra-config is quirq-ai/infra-config at qq-config's qq.toml pin, a commit on its
+    main; else why not. Replaces the pins.toml check of gate's own settings."""
+    data, code, want = Path(args.config), Path(args.infra_config or "."), args.config_commit or ""
+    owner = s["org"]["owner"]
+    if not re.fullmatch(r"[0-9a-f]{40}", want):
+        return f"--settings needs --config-commit, qq-config's full 40-hex commit, not {want or 'nothing'!r}"
+    head = settings._git(data, "rev-parse", "HEAD")
+    if head != want:
+        return f"--config {data} is at {head or 'no commit'}, not --config-commit {want}"
+    if settings._git(data, "status", "--porcelain"):
+        return f"--config {data} has local changes or untracked files; use a clean checkout of {want}"
+    if _origin(data) != f"https://github.com/{owner}/{settings.USER_CONFIG_REPO}".lower():
+        return f"--config {data} was not cloned from https://github.com/{owner}/{settings.USER_CONFIG_REPO}"
+    try:
+        org = tomllib.loads((data / "config" / "org.toml").read_text())
+        settings.check_user_owner(s, org["org"]["code_host"])
+    except (OSError, tomllib.TOMLDecodeError, KeyError, TypeError) as e:
+        return f"--config {data}: cannot read config/org.toml's code_host: {e}"
+    except GateError as e:
+        return str(e)
+    try:
+        pin = tomllib.loads((data / "qq.toml").read_text())["infra-config"]["commit"]
+    except (OSError, tomllib.TOMLDecodeError, KeyError, TypeError) as e:
+        return f"--config {data}: cannot read the infra-config pin from qq.toml ([infra-config] commit): {e}"
+    if not isinstance(pin, str) or not re.fullmatch(r"[0-9a-f]{40}", pin):
+        return f"--config {data}: qq.toml's infra-config commit {pin!r} is not a full 40-hex commit"
+    source = _infra_config_source()
+    if settings._git(code, "rev-parse", "HEAD") != pin:
+        return f"--infra-config {code} is not at qq.toml's pin {pin}"
+    if settings._git(code, "status", "--porcelain", "--untracked-files=no"):
+        return f"--infra-config {code} has local changes; use a clean checkout of {pin}"
+    if _origin(code) != source.rstrip("/").removesuffix(".git").lower():
+        return f"--infra-config {code} was not cloned from {source}"
+    main = (settings._git(code, "ls-remote", "origin", "refs/heads/main") or "").split("\t")[0]
+    if not re.fullmatch(r"[0-9a-f]{40}", main):
+        return f"--infra-config {code}: cannot read {source} main to confirm the pin is on it"
+    if settings._git(code, "cat-file", "-e", f"{main}^{{commit}}") is None:
+        settings._git(code, "fetch", "--quiet", "origin", "main")
+    if settings._git(code, "merge-base", "--is-ancestor", pin, main) is None:
+        return f"qq.toml's infra-config pin {pin} is not on {source} main"
+    return None
+
+
 def _ready(plans, checkouts, s):
     """Readiness per repo, from a checkout that must be the remote default branch's current head."""
     allow = {r["name"]: tuple(r.get("allow_conditional", ())) for r in s["repo"]}
@@ -233,6 +326,12 @@ def _print_ready(plans, ready, heads):
 
 
 def cmd_settings(args) -> int:
+    if args.action == "check":
+        return _check(args)
+    if not args.config:
+        raise GateError(f"settings {args.action} needs --config DIR")
+    if _user_mode(args) and not args.infra_config:
+        raise GateError("--settings needs --infra-config DIR, the infra-config checkout at qq-config's qq.toml pin")
     if args.action == "plan":
         cfg, backend, s, plans = _plans(args)
         print(json.dumps(_plan_json(cfg, backend, plans, settings.org_workflows(s, cfg)), indent=2))
@@ -240,12 +339,12 @@ def cmd_settings(args) -> int:
     if not args.checkouts:
         raise GateError(f"settings {args.action} needs --checkouts DIR with each repo's default branch")
     if args.action == "verify":
-        stale = _config_at_pin(Path(args.config))
+        s, _ = _settings_file(args)
+        stale = _user_commits(args, s) if _user_mode(args) else _config_at_pin(Path(args.config))
         if stale:
             print(f"WARNING  {stale}", flush=True)
         # Like apply, infra-config's code runs only in the credential-free child (review of #13:
         # verify runs in the admin's own environment, with gh's login in reach).
-        s = settings.load_settings("github")
         data = _plan_without_token(args)
         s, _, plans, org = _trusted_plans(data, args.repo, s, Path(args.config))
         ready, heads = _ready(plans, args.checkouts, s)
@@ -264,11 +363,11 @@ def cmd_settings(args) -> int:
     return _apply(args)
 
 
-def _token() -> str:
+def _token(child_ran: bool = True) -> str:
     """The admin token, read only after the plan child has exited: while infra-config code runs, no
     credential is in this process (a same-user child can read its parent's environment)."""
     token = os.environ.get("QQ_GITHUB_TOKEN")
-    if token:
+    if token and child_ran:
         print("WARNING  QQ_GITHUB_TOKEN was in this process's environment while infra-config's code ran in "
               "the plan child, which can read it; leave it unset and qqgate asks `gh auth token` afterwards",
               flush=True)
@@ -293,12 +392,18 @@ def _print_change(c: dict) -> None:
 
 
 def _apply(args) -> int:
-    stale = _config_at_pin(Path(args.config))
-    if stale:
-        raise GateError(f"{stale}; check out the pinned commit (docs/apply-settings.md)")
-    settings_file = settings.SETTINGS / "github.toml"
+    user = _user_mode(args)
+    if not user:
+        stale = _config_at_pin(Path(args.config))
+        if stale:
+            raise GateError(f"{stale}; check out the pinned commit (docs/apply-settings.md)")
+    settings_file = Path(args.settings).resolve() if user else settings.SETTINGS / "github.toml"
     before = settings_file.read_bytes()
-    s = settings.load_settings("github")
+    s = settings.load_user_settings(settings_file) if user else settings.load_settings("github")
+    if user:
+        stale = _user_commits(args, s)
+        if stale:
+            raise GateError(f"{stale}; refusing to apply")
     data = _plan_without_token(args)
     if settings_file.read_bytes() != before:
         raise GateError(f"{settings_file} changed while the plan was computed; refusing to apply")
@@ -392,6 +497,30 @@ def _apply(args) -> int:
     return 1 if not_ready or skipped_org else 0
 
 
+def _check(args) -> int:
+    """`settings check`: read-only, for a user org's settings file. It holds the token, so it reads
+    only that file: no config and no infra-config code."""
+    if args.settings is None:
+        raise GateError("settings check needs --settings FILE (a user org's settings)")
+    s, _ = _settings_file(args)
+    names = [r["name"] for r in s["repo"]]
+    unknown = sorted(set(args.repo or ()) - set(names))
+    if unknown:
+        raise GateError(f"not in settings: {unknown}")
+    names = [n for n in names if not args.repo or n in args.repo]
+    token = _token(child_ran=False)
+    owner, approvals = s["org"]["owner"], s["main"]["required_approvals"]
+    ours = {s["main"]["ruleset"], s["reserved_tags"]["ruleset"]}
+    mod = backends.load("github")
+    warned = 0
+    for name in names:
+        for level, line in mod.check_repo(owner, name, ours, approvals, token):
+            warned += level == "warning"
+            print(f"{'WARNING ' if level == 'warning' else 'ok      '} {name}: {line}", flush=True)
+    print(f"done     {warned} warning(s) on {len(names)} repo(s)", flush=True)
+    return 1 if warned else 0
+
+
 def _plan_items(warnings: list[str], changes: list[dict]) -> dict[str, str]:
     """What a dry run shows, item by item: hash -> a short description. A change's hash covers its
     body and differences, so the same name with other content is a new item. `apply --save-plan`
@@ -469,8 +598,12 @@ def main(argv: list[str] | None = None) -> int:
             g.add_argument("--sha", help="commit to read check results for from the backend")
     st = sub.add_parser("settings", help="merge queue and rulesets as code (V0-ORG-03)")
     st.set_defaults(fn=cmd_settings)
-    st.add_argument("action", choices=["plan", "verify", "apply"])
-    st.add_argument("--config", required=True, help="infra-config checkout (pins.toml [infra-config])")
+    st.add_argument("action", choices=["plan", "verify", "apply", "check"])
+    st.add_argument("--config", help="infra-config checkout (pins.toml [infra-config]); with --settings, the "
+                                     "qq-config checkout (data only). Not for check")
+    st.add_argument("--settings", metavar="FILE", help="a user org's settings instead of gate's own (one-command setup)")
+    st.add_argument("--infra-config", metavar="DIR", help="with --settings: infra-config at qq-config's qq.toml pin")
+    st.add_argument("--config-commit", metavar="SHA", help="with --settings, verify and apply: qq-config's commit")
     st.add_argument("--repo", action="append", help="limit to these repos (repeatable)")
     st.add_argument("--checkouts", help="directory holding a default-branch checkout of each repo, by name")
     st.add_argument("--yes", action="store_true", help="apply: really write (default is a dry run)")

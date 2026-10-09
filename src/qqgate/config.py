@@ -33,9 +33,11 @@ def qqcfg_module(root: Path) -> ModuleType:
     return module
 
 
-def load(root: Path, validate: bool = True) -> dict:
-    """Return infra-config as qqcfg.load returns it, after qqcfg validate passes."""
-    qqcfg = qqcfg_module(root)
+def load(root: Path, validate: bool = True, code: Path | None = None) -> dict:
+    """Return infra-config as qqcfg.load returns it, after qqcfg validate passes. `code` is the
+    infra-config checkout whose qqcfg reads `root` when `root` holds only data (a user org's
+    qq-config, `settings --infra-config`); by default `root` is that checkout itself."""
+    qqcfg = qqcfg_module(code or root)
     if validate:
         errors, _ = qqcfg.validate(Path(root))
         if errors:
