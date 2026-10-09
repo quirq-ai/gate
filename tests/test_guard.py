@@ -33,17 +33,17 @@ def test_planted_pytest_string_fails(tmp_path, terms):
 ])
 def test_python_pieces_are_caught(tmp_path, terms, code, where):
     root = core_repo(tmp_path, {"src/x/m.py": code})
-    assert [f.where for f in guard.scan_repo(root, "depot", terms)] == [where]
+    assert [f.where for f in guard.scan_repo(root, "qq", terms)] == [where]
 
 
 def test_other_files_are_grepped(tmp_path, terms):
     root = core_repo(tmp_path, {"bin/qq": "#!/bin/sh\nexec pnpm build\n"})
-    assert [(f.line, f.term) for f in guard.scan_repo(root, "depot", terms)] == [(2, "pnpm")]
+    assert [(f.line, f.term) for f in guard.scan_repo(root, "qq", terms)] == [(2, "pnpm")]
 
 
 def test_words_inside_other_words_do_not_match(tmp_path, terms):
     root = core_repo(tmp_path, {"src/x/m.py": 'helper = "rusty pipeline javascripts awsome"\n'})
-    assert guard.scan_repo(root, "depot", terms) == []
+    assert guard.scan_repo(root, "qq", terms) == []
 
 
 def test_tests_docs_and_ci_are_not_core(tmp_path, terms):
@@ -54,14 +54,14 @@ def test_tests_docs_and_ci_are_not_core(tmp_path, terms):
 
 def test_language_names_are_findings_outside_reviewed_files(tmp_path, terms):
     root = core_repo(tmp_path, {"src/x/m.py": 'if kind == "python-service":\n    run("pip install x")\n'})
-    assert {f.term for f in guard.scan_repo(root, "depot", terms)} == {"python", "pip"}
+    assert {f.term for f in guard.scan_repo(root, "qq", terms)} == {"python", "pip"}
 
 
 @pytest.mark.parametrize("name,term", [("PyTestRunner", "pytest"), ("NPMClient", "npm"),
                                        ("TypeScriptRecipe", "typescript"), ("run_pytest", "pytest")])
 def test_identifier_shapes(tmp_path, terms, name, term):
     root = core_repo(tmp_path, {"src/x/m.py": f"class {name}:\n    pass\n"})
-    assert term in {f.term for f in guard.scan_repo(root, "depot", terms)}
+    assert term in {f.term for f in guard.scan_repo(root, "qq", terms)}
 
 
 def test_bytes_bom_and_declared_encoding_are_read(tmp_path, terms):
@@ -70,7 +70,7 @@ def test_bytes_bom_and_declared_encoding_are_read(tmp_path, terms):
     (p / "a.py").write_bytes(b'X = b"pytest"\n')
     (p / "b.py").write_bytes("\ufeffY = 'vercel'\n".encode("utf-8"))
     (p / "c.py").write_bytes(b"# -*- coding: latin-1 -*-\nZ = '\xe9 npm'\n")
-    assert {f.term for f in guard.scan_repo(tmp_path, "depot", terms)} == {"pytest", "vercel", "npm"}
+    assert {f.term for f in guard.scan_repo(tmp_path, "qq", terms)} == {"pytest", "vercel", "npm"}
 
 
 def test_missing_root_is_an_error(tmp_path, terms):
@@ -92,7 +92,7 @@ def test_allow_list_is_per_repo_and_path(tmp_path, terms):
 def test_unparseable_code_is_refused(tmp_path, terms):
     root = core_repo(tmp_path, {"src/x/m.py": "def (:\n"})
     with pytest.raises(GateError, match="cannot parse"):
-        guard.scan_repo(root, "depot", terms)
+        guard.scan_repo(root, "qq", terms)
 
 
 def test_non_core_repo_is_refused(tmp_path, terms):

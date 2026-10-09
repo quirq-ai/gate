@@ -70,14 +70,14 @@ creates or updates them by name for ready repos only. An org admin runs one comm
 
 ## Agnosticism guard (V0-GAT-02)
 
-`qqgate guard --repo <core repo> [ROOT]` fails if shipped code in a core repo (depot, sync, gate,
+`qqgate guard --repo <core repo> [ROOT]` fails if shipped code in a core repo (qq, sync, gate,
 test-pipelines, gardener, release; plan §5.1) names a language, build tool or deploy target. Python
 files are read with `ast` (identifiers, imports, strings) and `tokenize` (comments); other files are
 grepped. Tests, docs and CI are not core code. The terms and the reviewed per-file exceptions (for
-example depot's launcher, which starts qq's own Python) are in `guard/terms.toml`, a policy file;
+example qq's launcher, which starts qq's own Python) are in `guard/terms.toml`, a policy file;
 there is no inline pragma. Registered media types (`application/vnd.docker...`) are formats, not
 targets, and are skipped. Each core repo adds
-`qqgate guard --repo <name> .` to its presubmit (depot, test-pipelines, gardener and release do;
+`qqgate guard --repo <name> .` to its presubmit (qq, test-pipelines, gardener and release do;
 sync does not yet). gate runs it in its own presubmit; this repo's `settings-drift` job sweeps the
 other five.
 
@@ -108,7 +108,7 @@ is one sample.
 | V0-GAT-02 | #4 | merged |
 | V0-GAT-03 | | waits on V0-ORG-02 (suraj's owners) |
 | V0-GAT-04 | #6 | merged; the sink reads QQ_QUEUED_AT (test-pipelines 1e3ddb1), and infra-config's generated gate builders run the timing step (infra-config #10, #20). The scorecard of 2026-10-07 shows gate time for xo-space (p50 2.1 min over 5 runs) and innernet (p50 0.9 min over 2 runs) |
-| not-onboarded exit 3 (for depot) | #7 | merged |
+| not-onboarded exit 3 (for qq) | #7 | merged |
 
 ## Known conflict
 
