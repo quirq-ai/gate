@@ -209,7 +209,7 @@ def rulesets(settings: dict, cfg: dict, checks: tuple[str, ...], code_owner_revi
                   "conditions": {"ref_name": {"include": [f"refs/tags/{t}" for t in names], "exclude": []}},
                   "rules": lock})
     if release_tags:
-        # Tags a pin trusts (depot: a version-only pin installs tag v<version>, and a git: digest
+        # Tags a pin trusts (qq: a version-only pin installs tag v<version>, and a git: digest
         # must be on a branch or tag): nobody but the release executor may create, move or delete
         # them, the same bypass as lkgr and channels/**/*.
         state.append({"name": "qq-release-tags", "target": "tag", "enforcement": "active", "bypass_actors": bypass,
