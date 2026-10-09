@@ -35,6 +35,8 @@ bypass_integration_ids = [5199903]     # quirq-release-executor
 # website too: release's lkgr moves every onboarded repo's lkgr ref (`qqrelease repos` at infra-config
 # 41a8cb0 lists xo-space, website, innernet), channels or not.
 executor_repos = ["release", "innernet", "xo-space", "website"]
+# A repo's executor_branches (state branches only the executor may write) get this ruleset.
+state_ruleset = "qq-release-state"
 
 [reserved_tags]
 # Tags named like a branch. A tag called `main` satisfies a workflow's `github.ref_name == 'main'`
@@ -265,9 +267,13 @@ kind = "infra"
 checks = ["presubmit"]
 # No code_owner_review: suraj chose a fully autonomous release on 2026-10-05 (he reverts what he
 # dislikes). So any green PR can land a workflow on main that uses the executor App's key.
-# channels.json and operation keys; same rules as gardener's. TODO(suraj): once the release executor
-# identity exists, restrict updates here to it (like qq-release-refs), not just deletion and force-push.
+# channels.json and operation keys; same rules as gardener's (qq-state-branches: no deletion or
+# force-push). qq-release-state on top: only the release executor App creates or updates it
+# (canary-app steps, step 5). Break-glass: an org owner sets qq-release-state to Disabled AND deletes
+# the QQ_RELEASE_CLIENT_ID variable in release (workflows then push with their own token, the mode
+# before command 2). Restore: set the variable again first, then re-apply (docs/apply-settings.md).
 state_branches = ["release-state"]
+executor_branches = ["release-state"]
 
 [[repo]]
 name = "installer"
