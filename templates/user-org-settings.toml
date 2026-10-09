@@ -1,13 +1,14 @@
 # A user org's gate settings, for the one-command setup (quirq-ai/setup). Setup fills in the owner and
 # the repos, then runs, with this file as FILE:
 #   qqgate settings check --settings FILE
-#   qqgate settings plan|verify|apply --settings FILE --config <qq-config checkout>
-#       --infra-config <infra-config at qq-config's qq.toml pin> [--config-commit <qq-config commit>]
+#   qqgate settings plan --settings FILE --config <qq-config checkout>
+#       --infra-config <infra-config at qq-config's qq.toml pin>
+#   qqgate settings verify|apply  (the same, plus) --config-commit <qq-config commit> --checkouts DIR
 # gate refuses any other section or key: a user org gets only the qq-main and qq-reserved-tags
 # rulesets (no release refs, Dependabot or org rulesets, no per-repo options), and never quirq-ai's.
 
 [org]
-owner = "acme"                     # the org that owns qq-config (its code_host), lower case
+owner = "acme"                     # the org that owns qq-config (its code_host), in lower case
 
 [main]
 ruleset = "qq-main"                # fixed name

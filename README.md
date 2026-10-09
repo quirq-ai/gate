@@ -74,6 +74,8 @@ A user org (the one-command setup, quirq-ai/setup) passes its own file with `--s
 (`[infra-config] commit`) and, for `verify` and `apply`, `--config-commit`. Such a file gets only
 `qq-main` and `qq-reserved-tags`, never for quirq-ai, and `apply.sh` never passes these flags.
 `qqgate settings check --settings FILE` reads (GETs only) what already protects each of its repos.
+Run qqgate from a gate checkout installed with `pip install -e`, as `apply.sh` does: it reads
+`settings/` and `pins.toml` from that checkout.
 
 ## Agnosticism guard (V0-GAT-02)
 

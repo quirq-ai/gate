@@ -155,8 +155,8 @@ def test_ruleset_names_are_fixed(user_file, section, name):
 def test_owner_must_be_the_code_host_owner(acme, config_root, user_file, capsys):
     rc, err = _plan(acme, config_root, user_file(SETTINGS.replace('owner = "acme"', 'owner = "other"')), capsys)
     assert rc == 2 and "code_host" in err
-    rc, plan = _plan(acme, config_root, user_file(SETTINGS.replace('owner = "acme"', 'owner = "ACME"')), capsys)
-    assert rc == 0, plan   # GitHub owner names ignore case
+    rc, err = _plan(acme, config_root, user_file(SETTINGS.replace('owner = "acme"', 'owner = "ACME"')), capsys)
+    assert rc == 2 and "lower case" in err   # as qqcfg's code_host, and the clone URLs readiness compares
 
 
 @pytest.mark.parametrize("extra,why", [
@@ -184,11 +184,26 @@ def test_forbidden_sections_are_refused(user_file, extra, why):
     ('owner = "acme"\n', 'owner = "acme"\nfoo = 1\n', "keys"),
     ('owner = "acme"\n', 'owner = "ac me"\n', "GitHub org name"),
     ('names = ["main"]\n', 'names = []\n', "non-empty"),
+    ('names = ["main"]\n', 'names = [".."]\n', "non-empty"),
+    ('name = "xo-space"\n', 'name = ".."\n', "repo name"),
+    ('name = "xo-space"\n', 'name = "."\n', "repo name"),
+    ('name = "xo-space"\n', 'name = "xo-space.git"\n', "repo name"),
+    ('name = "xo-space"\n', 'name = "xo-space.GIT"\n', "repo name"),
 ])
 def test_forbidden_keys_and_values_are_refused(user_file, old, new, why):
     assert old in SETTINGS
     with pytest.raises(GateError, match=why):
         settings.load_user_settings(user_file(SETTINGS.replace(old, new, 1)))
+
+
+def test_settings_are_parsed_once_from_the_bytes_given(user_file):
+    """Audit 3: the allow-list and the data come from one read: apply passes the bytes it compares."""
+    f = user_file(SETTINGS + '\n[release_refs]\nruleset = "qq-release-refs"\nbranches = []\ntags = []\n'
+                  'bypass_integration_ids = [12345]\n')
+    s = settings.load_user_settings(f, SETTINGS.encode())
+    assert "release_refs" not in s
+    with pytest.raises(GateError, match="not allowed"):
+        settings.load_user_settings(f)
 
 
 def test_org_and_stray_flags_are_refused(acme, config_root, user_file, tmp_path, capsys):
@@ -246,6 +261,11 @@ def test_commit_checks_pass_for_a_clean_pinned_pair(commits, user_file):
     (lambda data, ic, head: (_git("remote", "set-url", "origin", "https://github.com/other/qq-config", cwd=data),
                              head), "was not cloned from https://github.com/acme/qq-config"),
     (lambda data, ic, head: ((ic / "README").write_text("y"), head), "--infra-config .* local changes"),
+    (lambda data, ic, head: ((ic / "schema.json").write_text("{}"), head), "--infra-config .* untracked"),
+    (lambda data, ic, head: (_git("config", "--add", "remote.origin.url", "https://github.com/x/y", cwd=ic), head),
+     "--infra-config .*its one origin URL"),
+    (lambda data, ic, head: (_git("config", "--add", "remote.origin.url", "https://github.com/x/y", cwd=data), head),
+     "--config .*its one origin URL"),
     (lambda data, ic, head: (_git("remote", "set-url", "origin", "https://github.com/x/infra-config", cwd=ic),
                              head), "--infra-config .* was not cloned from"),
 ])
@@ -264,6 +284,41 @@ def test_commit_checks_refuse_infra_config_off_its_pin_or_off_main(commits, user
     (data / "qq.toml").write_text(f'[infra-config]\ncommit = "{_rev(ic)}"\n')
     _git("commit", "-qam", "pin side", cwd=data)
     assert "is not on" in cli._user_commits(_args(data, ic, _rev(data), ""), s)
+
+
+def test_commit_checks_follow_main_after_the_clone(commits, user_file, tmp_path):
+    """Main moved on after the clone: the pin is still on it (read fresh, not from the checkout)."""
+    data, ic, head = commits
+    other = tmp_path / "other"
+    _git("clone", "-q", cli._infra_config_source(), str(other), cwd=tmp_path)
+    (other / "NEW").write_text("n")
+    _git("add", "-A", cwd=other)
+    _git("commit", "-qm", "later", cwd=other)
+    _git("push", "-q", "origin", "HEAD:main", cwd=other)
+    assert cli._user_commits(_args(data, ic, head, ""), settings.load_user_settings(user_file())) is None
+
+
+@pytest.mark.parametrize("trick", ["two-origins", "insteadof"])
+def test_commit_checks_ignore_the_checkouts_own_git_config(commits, user_file, tmp_path, trick):
+    """Audit 2: a pin that is only on a decoy repo's main is refused, whatever the checkout's config
+    says (git uses a different one of two origin URLs, or an insteadOf rewrite, than config --get shows)."""
+    data, ic, head = commits
+    real = cli._infra_config_source()
+    decoy = tmp_path / "decoy.git"
+    _git("clone", "-q", "--bare", real, str(decoy), cwd=tmp_path)
+    (ic / "README").write_text("side")
+    _git("commit", "-qam", "side", cwd=ic)
+    _git("push", "-q", str(decoy), "HEAD:main", cwd=ic)   # the pin is on the decoy's main only
+    (data / "qq.toml").write_text(f'[infra-config]\ncommit = "{_rev(ic)}"\n')
+    _git("commit", "-qam", "pin side", cwd=data)
+    if trick == "two-origins":
+        _git("config", "--replace-all", "remote.origin.url", str(decoy), cwd=ic)
+        _git("config", "--add", "remote.origin.url", real, cwd=ic)
+        why = "its one origin URL"
+    else:
+        _git("config", f"url.{decoy}.insteadOf", real, cwd=ic)
+        why = "is not on"
+    assert why in cli._user_commits(_args(data, ic, _rev(data), ""), settings.load_user_settings(user_file()))
 
 
 def test_commit_checks_refuse_a_code_host_of_another_org(commits, user_file):
@@ -336,6 +391,27 @@ def test_user_apply_refuses_a_settings_file_changed_during_the_plan(user_apply, 
     assert "changed while the plan was computed" in capsys.readouterr().err
 
 
+def test_user_verify_warns_on_failed_commit_checks(user_apply, monkeypatch, capsys):
+    """Audit 4: verify in --settings mode runs the commit checks (it warns, like pins.toml's), and its
+    plan child gets the same --settings and --infra-config."""
+    f, argv = user_apply
+    monkeypatch.undo()   # the real _user_commits; keep only what verify needs faked
+    monkeypatch.setattr(settings, "checkout_state", lambda co, origin=None: settings.CheckoutState("a" * 40, "main", ()))
+    monkeypatch.setattr(settings, "readiness", lambda *a: [])
+    seen = []
+
+    def child(args):
+        seen.append(args)
+        cfg, backend, s, plans = cli._plans(args)
+        return json.loads(json.dumps(cli._plan_json(cfg, backend, plans, settings.org_workflows(s, cfg))))
+    monkeypatch.setattr(cli, "_plan_without_token", child)
+    verify = ["settings", "verify"] + argv[2:]
+    assert main(verify) == 0
+    out = capsys.readouterr().out
+    assert re.search(r"^WARNING  --config .* is at [0-9a-f]{40}, not --config-commit 0{40}$", out, re.M)
+    assert seen[0].settings == str(f) and seen[0].infra_config == argv[argv.index("--infra-config") + 1]
+
+
 def test_user_apply_refuses_failed_commit_checks(user_apply, monkeypatch, capsys):
     _, argv = user_apply
     monkeypatch.setattr(cli, "_user_commits", lambda args, s: "qq.toml's pin is not on main")
@@ -368,6 +444,15 @@ CLEAN = {
                                                          "can_approve_pull_request_reviews": False},
 }
 
+OFF = {   # a private repo with Actions turned off
+    "/repos/acme/qq-config": {"default_branch": "main", "visibility": "private", "allow_squash_merge": True},
+    "/repos/acme/qq-config/rulesets?includes_parents=true&per_page=100": [],
+    "/repos/acme/qq-config/rules/branches/main?per_page=100": [],
+    "/repos/acme/qq-config/actions/permissions": {"enabled": False},
+    "/repos/acme/qq-config/actions/permissions/workflow": {"default_workflow_permissions": "read",
+                                                           "can_approve_pull_request_reviews": False},
+}
+
 
 @pytest.fixture
 def recorded(monkeypatch):
@@ -384,9 +469,13 @@ def recorded(monkeypatch):
         path = url.removeprefix(github.API)
         if path in RECORDED or path in CLEAN:
             return {**RECORDED, **CLEAN}[path]
+        if path in OFF:
+            return OFF[path]
         if path.endswith("/actions/permissions") and "innernet" in path:
             raise GateError(f"GitHub API GET {url}: 403 Forbidden: needs admin")
-        raise GateError(f"GitHub API GET {url}: 404 Not Found: {{}}")
+        if path.endswith("/branches/main/protection") and ("website" in path or "qq-config" in path):
+            raise GateError(f'GitHub API GET {url}: 404 Not Found: {{"message":"Branch not protected"}}')
+        raise GateError(f'GitHub API GET {url}: 404 Not Found: {{"message":"Not Found"}}')
     monkeypatch.setattr(github, "_send", send)
     return calls
 
@@ -419,6 +508,42 @@ def test_check_shows_unreadable_items_as_warnings(recorded, user_file, capsys):
     assert "WARNING  innernet: could not read the repo: GitHub API GET" in out
     assert "WARNING  innernet: could not read its Actions permissions: GitHub API GET" in out and "403" in out
     assert "WARNING  innernet: could not read its rulesets" in out
+    # GitHub answers 404 Not Found when the caller cannot see it: that is unreadable, not "none"
+    assert "WARNING  innernet: could not read classic branch protection on main" in out
+    assert "no classic branch protection" not in out
+
+
+def test_check_warns_on_a_private_repo_and_actions_off(recorded, user_file, capsys):
+    assert _check(user_file(), "qq-config") == 1
+    out = capsys.readouterr().out
+    assert "WARNING  qq-config: visibility private: the merge queue on a repo that is not public" in out
+    assert "WARNING  qq-config: GitHub Actions is off" in out
+    assert "ok       qq-config: no classic branch protection on main" in out
+
+
+@pytest.mark.parametrize("flag", [["--config", "x"], ["--infra-config", "x"], ["--config-commit", "a" * 40],
+                                  ["--checkouts", "x"], ["--yes"], ["--save-plan", "x"], ["--expect-plan", "x"],
+                                  ["--accept-warnings"], ["--overwrite"]])
+def test_check_refuses_flags_it_would_ignore(recorded, user_file, capsys, flag):
+    assert main(["settings", "check", "--settings", str(user_file()), *flag]) == 2
+    assert "settings check reads only --settings" in capsys.readouterr().err and not recorded
+
+
+def test_check_names_itself_when_it_has_no_token(recorded, user_file, monkeypatch, capsys):
+    monkeypatch.delenv("QQ_GITHUB_TOKEN")
+    monkeypatch.setattr(cli.subprocess, "run", lambda cmd, **k: subprocess.CompletedProcess(cmd, 1, "", "no login"))
+    assert _check(user_file(), "website") == 2
+    assert "settings check needs a token" in capsys.readouterr().err
+
+
+def test_new_flags_cannot_be_abbreviated(acme, config_root, user_file):
+    for argv in (["settings", "plan", "--sett", str(user_file()), "--config", str(acme), "--infra-config",
+                  str(config_root)],
+                 ["settings", "plan", "--settings", str(user_file()), "--config", str(acme), "--infra",
+                  str(config_root)]):
+        with pytest.raises(SystemExit) as e:
+            main(argv)
+        assert e.value.code == 2
 
 
 def test_check_of_a_clean_repo_passes(recorded, user_file, capsys):

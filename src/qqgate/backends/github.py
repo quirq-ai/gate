@@ -348,15 +348,18 @@ def check_repo(owner: str, repo: str, ours: set[str], approvals: int, token: str
     """`settings check` for one repo, GETs only and whatever its readiness: ("warning" | "ok", line)
     for what already protects it (as existing_protection: squash off, classic protection, other
     rulesets), the reviews they require, its visibility and its Actions permissions. Anything it
-    cannot read is a warning, never "none"."""
+    cannot read is a warning, never "none". It reads no config, so it does not compare the owner with
+    qq-config's code_host; `settings plan`, which setup also runs before the user's yes, does."""
     out: list[tuple[str, str]] = []
     base = f"{API}/repos/{owner}/{repo}"
 
-    def read(what: str, url: str, absent_on_404: bool = False):
+    def read(what: str, url: str, absent: str = ""):
         try:
             return _send("GET", url, token)
         except GateError as e:
-            if absent_on_404 and " 404 " in str(e):
+            # GitHub also answers 404 ("Not Found") when the caller cannot see it: only its own
+            # `absent` message means there is none.
+            if absent and " 404 " in str(e) and absent in str(e):
                 return None
             out.append(("warning", f"could not read {what}: {e}"))
             return False
@@ -366,7 +369,11 @@ def check_repo(owner: str, repo: str, ours: set[str], approvals: int, token: str
     if isinstance(info, dict):
         branch = info.get("default_branch") or "main"
         visibility = info.get("visibility")
-        out.append(("ok", f"visibility {visibility}") if visibility else ("warning", "could not read its visibility"))
+        if visibility == "public":
+            out.append(("ok", "visibility public"))
+        else:  # plan.md limits: v0 gates public repos only
+            out.append(("warning", f"visibility {visibility or 'unknown'}: the merge queue on a repo that is not "
+                                   "public needs GitHub Enterprise Cloud, so v0 gates public repos only"))
         squash = info.get("allow_squash_merge")
         if squash is False:
             out.append(("warning", "squash merging is turned off for this repo, and the merge queue squashes; turn "
@@ -374,7 +381,8 @@ def check_repo(owner: str, repo: str, ours: set[str], approvals: int, token: str
         elif squash is None:
             out.append(("warning", "could not read whether squash merging is on (needs admin on the repo)"))
     b = urllib.parse.quote(branch, safe="")
-    prot = read(f"classic branch protection on {branch}", f"{base}/branches/{b}/protection", absent_on_404=True)
+    prot = read(f"classic branch protection on {branch}", f"{base}/branches/{b}/protection",
+                absent="Branch not protected" if isinstance(info, dict) else "")
     if prot is None:
         out.append(("ok", f"no classic branch protection on {branch}"))
     elif isinstance(prot, dict):
