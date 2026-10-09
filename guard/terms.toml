@@ -3,7 +3,7 @@
 # Changing this file is a policy change (verification surface), so it needs suraj.
 
 # Core repos (plan §5.1). The guard runs on their shipped code, not on tests, docs or CI.
-core = ["depot", "sync", "gate", "test-pipelines", "gardener", "release"]
+core = ["qq", "sync", "gate", "test-pipelines", "gardener", "release"]
 scan = ["src/**", "bin/**", "tools/**"]
 skip = ["**/__pycache__/**", "**/*.egg-info/**", "**/*.md"]
 
@@ -26,55 +26,55 @@ deploy_target = ["vercel", "netlify", "heroku", "kubernetes", "k8s", "docker", "
 # install *its* packages are listed one by one; anywhere else, python/pip is a finding.
 
 [[allow]]
-repo = "depot"
+repo = "qq"
 path = "bin/qq"
 term = "python3"
 why = "The launcher finds the interpreter that runs qq itself (QQ_PYTHON, default python3)."
 
 [[allow]]
-repo = "depot"
+repo = "qq"
 path = "bin/qq"
 term = "python"
 why = "QQ_PYTHON names the interpreter that runs qq itself."
 
 [[allow]]
-repo = "depot"
+repo = "qq"
 path = "src/qqdepot/bootstrap.py"
 term = "python"
 why = "Bootstraps qq's own venv (bin/python -m pip install qq)."
 
 [[allow]]
-repo = "depot"
+repo = "qq"
 path = "src/qqdepot/bootstrap.py"
 term = "pip"
 why = "Installs qq's own package into its venv."
 
 [[allow]]
-repo = "depot"
+repo = "qq"
 path = "src/qqdepot/pin.py"
 term = "python"
 why = "Installs a pinned qq version into its own venv."
 
 [[allow]]
-repo = "depot"
+repo = "qq"
 path = "src/qqdepot/pin.py"
 term = "pip"
 why = "Installs a pinned qq version into its own venv."
 
 [[allow]]
-repo = "depot"
+repo = "qq"
 path = "src/qqdepot/gate.py"
 term = "python"
 why = "Installs the pinned qq gate package into its own venv (venv/bin/python -m pip)."
 
 [[allow]]
-repo = "depot"
+repo = "qq"
 path = "src/qqdepot/gate.py"
 term = "pip"
 why = "Installs the pinned qq gate package into its own venv."
 
 [[allow]]
-repo = "depot"
+repo = "qq"
 path = "src/qqdepot/watch.py"
 term = "python"
 why = "The usage line names how qq's own module is started (python -m qqdepot.watch)."
@@ -129,13 +129,13 @@ term = "*"
 why = "Launcher for qq's own qqresults from source (audit S8): starts qq's interpreter and says why nothing is installed."
 
 [[allow]]
-repo = "depot"
+repo = "qq"
 path = "src/qqdepot/locks/pypi.in"
 term = "*"
-why = "Hash lock input for qq's own repos' PyPI dependencies (depot #15); it pins qq's tooling, not a target's build."
+why = "Hash lock input for qq's own repos' PyPI dependencies (qq #15); it pins qq's tooling, not a target's build."
 
 [[allow]]
-repo = "depot"
+repo = "qq"
 path = "src/qqdepot/locks/pypi.txt"
 term = "*"
-why = "Generated hash lock of qq's own PyPI dependencies (depot #15); its header names the tool that wrote it."
+why = "Generated hash lock of qq's own PyPI dependencies (qq #15); its header names the tool that wrote it."

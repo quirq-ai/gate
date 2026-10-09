@@ -123,12 +123,12 @@ is no less safe.
   release `release-state`, perf `perf-data`, test-pipelines `results`): those branches cannot be deleted or force-pushed.
   Their bots still push to them normally. Later, once the release executor exists, `release-state`
   should also be writable only by it (TODO(suraj) in `settings/github.toml`).
-- `qq-release-tags`, in depot: no tag (`**/*`, nested ones too) may be created, moved or deleted
-  by anyone, admins and the release executor included, until depot is added to
-  `[release_refs] executor_repos` (with the App installed on depot). depot's pins
+- `qq-release-tags`, in qq: no tag (`**/*`, nested ones too) may be created, moved or deleted
+  by anyone, admins and the release executor included, until qq is added to
+  `[release_refs] executor_repos` (with the App installed on qq). qq's pins
   trust its tags: a version-only pin, such as xo-space's and innernet's `[qq] version = "0.1.0"`,
-  installs tag `v<version>`, and a `git:` commit must be on main or a `v*` tag (depot #16; main
-  is locked by `qq-main`). So depot `v0.1.0` cannot be cut, by hand or otherwise, until then
+  installs tag `v<version>`, and a `git:` commit must be on main or a `v*` tag (qq #16; main
+  is locked by `qq-main`). So qq `v0.1.0` cannot be cut, by hand or otherwise, until then
   (neither product's CI installs qq yet). Other qq repos pin each other by
   commit and toolchains checks digests, so no other pins trust tags. xo-space's `v*` tags start its container publish; they are not locked, because
   suraj cuts them by hand (TODO(suraj): who may create them).

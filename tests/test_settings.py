@@ -58,7 +58,7 @@ def test_release_refs_are_locked_to_the_release_executor(s, cfg, config_root):
 
 
 def test_release_executor_bypass_only_where_its_app_is_installed(s, cfg, config_root):
-    """The App id lands only in executor_repos' release refs; depot's release tags and every other
+    """The App id lands only in executor_repos' release refs; qq's release tags and every other
     repo keep no bypass (an Integration bypass for an App not installed may be refused mid-apply)."""
     assert s["release_refs"]["executor_repos"] == ["release", "innernet", "xo-space", "website"]
     s["release_refs"]["bypass_integration_ids"] = [123456]
@@ -885,14 +885,14 @@ def test_verify_runs_infra_config_code_only_in_the_child(apply_env, config_root,
 
 
 def test_depot_tags_that_pins_trust_are_locked(s, cfg, config_root):
-    """depot pins trust its tags (a version-only pin installs tag v<version>; a git: digest must be
+    """qq pins trust its tags (a version-only pin installs tag v<version>; a git: digest must be
     on a branch or tag), so nobody but the release executor may create, move or delete one."""
     plans = plans_by_name(s, cfg, config_root)
-    rs = {r["name"]: r for r in plans["depot"].rulesets}["qq-release-tags"]
+    rs = {r["name"]: r for r in plans["qq"].rulesets}["qq-release-tags"]
     assert rs["target"] == "tag" and rs["conditions"]["ref_name"]["include"] == ["refs/tags/**/*"]
     assert {r["type"] for r in rs["rules"]} == {"creation", "update", "deletion", "non_fast_forward"}
-    assert rs["bypass_actors"] == []   # depot is not in [release_refs] executor_repos
-    assert all("qq-release-tags" not in {r["name"] for r in p.rulesets} for n, p in plans.items() if n != "depot")
+    assert rs["bypass_actors"] == []   # qq is not in [release_refs] executor_repos
+    assert all("qq-release-tags" not in {r["name"] for r in p.rulesets} for n, p in plans.items() if n != "qq")
 
 
 @pytest.mark.parametrize("bad", [["refs/tags/v*"], ["v*", "v*"], "v*", ["a b"], ["**"], ["v/**"]])
