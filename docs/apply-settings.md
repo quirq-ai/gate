@@ -113,7 +113,11 @@ is no less safe.
   `executor_repos` (release, innernet, xo-space, website, xo), the repos the App is installed on. Every other
   repo keeps no bypass: GitHub may refuse an Integration bypass for an App that is not installed,
   and the dry run (GET only) could not show that before the write. The App ID is 5199903 (created
-  2026-10-05).
+  2026-10-05). Before the first apply that includes xo, add xo to the App's repositories
+  (github.com/organizations/quirq-ai/settings/installations, Configure next to
+  quirq-release-executor, keeping "Only select repositories"): without it GitHub refuses xo's
+  `qq-release-refs-branches` with a 422, as it did for xo-space, innernet and website on 2026-10-09,
+  and the run stops with `FAILED` after writing xo's `qq-main` only.
 - `qq-reserved-tags`, in every repo: nobody may create, move or delete a tag named `main` or like
   any repo's state branch (`ledger`, `perf-data`, `release-state`, `results`, `tree-status`). A tag
   named `main` satisfies a workflow's `github.ref_name == 'main'` test, and a tag wins over a branch

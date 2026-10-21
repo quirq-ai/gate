@@ -35,8 +35,10 @@ bypass_integration_ids = [5199903]     # quirq-release-executor
 # and adding qq here, an explicit later change.
 # website too: release's lkgr moves every onboarded repo's lkgr ref (`qqrelease repos` at infra-config
 # 41a8cb0 lists xo-space, website, innernet), channels or not.
-# xo too (infra-config 40d8f2b, #37): release's lkgr will list it once release repins past #37, so
-# the App must be installed on xo before that repin.
+# xo too (infra-config 40d8f2b, #37): release's lkgr will list it once release repins past #37.
+# Install the App on xo before the apply that writes this: the apply creates xo's
+# qq-release-refs-* with the App as bypass, which GitHub refused with a 422 for xo-space, innernet
+# and website until the App was installed on them (2026-10-09). So before that repin too.
 executor_repos = ["release", "innernet", "xo-space", "website", "xo"]
 # A repo's executor_branches (state branches only the executor may write) get this ruleset.
 state_ruleset = "qq-release-state"
@@ -185,8 +187,9 @@ allow_auto_merge = true               # agents queue PRs with auto-merge; it ski
 kind = "product"
 # suraj chose c (2026-10-21): no approval and no code-owner review; xo PRs land on xo-presubmit
 # alone. Every merge to main deploys xo.quirq.dev, and nothing on GitHub makes anyone read a PR
-# first, changes to xo's own CI included. The gardener is the backstop (suraj: xo is where it gets
-# really tested).
+# first, changes to xo's own CI included. suraj wants xo to be where the gardener gets really
+# tested, but that is separate work: gardener pins infra-config bf3ad29, which predates xo (#37), so
+# until it repins nothing reverts a bad landing on xo automatically.
 required_approvals = 0
 transitional_checks = []
 dependabot_branches = false           # no Dependabot roller for xo (infra-config rollers.toml)
