@@ -60,12 +60,12 @@ def test_release_refs_are_locked_to_the_release_executor(s, cfg, config_root):
 def test_release_executor_bypass_only_where_its_app_is_installed(s, cfg, config_root):
     """The App id lands only in executor_repos' release refs; qq's release tags and every other
     repo keep no bypass (an Integration bypass for an App not installed may be refused mid-apply)."""
-    assert s["release_refs"]["executor_repos"] == ["release", "innernet", "xo-space", "website"]
+    assert s["release_refs"]["executor_repos"] == ["release", "innernet", "xo-space", "website", "xo"]
     s["release_refs"]["bypass_integration_ids"] = [123456]
     app = [{"actor_id": 123456, "actor_type": "Integration", "bypass_mode": "always"}]
     for name, plan in plans_by_name(s, cfg, config_root).items():
         by = {r["name"]: r["bypass_actors"] for r in plan.rulesets}
-        want = app if name in ("release", "innernet", "xo-space", "website") else []
+        want = app if name in ("release", "innernet", "xo-space", "website", "xo") else []
         assert by["qq-release-refs-branches"] == want and by["qq-release-refs-tags"] == want, name
         assert by["qq-main"] == [] and by.get("qq-release-tags", []) == [], name
 
@@ -173,6 +173,33 @@ def test_website_is_onboarded_like_innernet(s, cfg, config_root, ids, website_ex
     assert settings.repo_settings(next(r for r in s["repo"] if r["name"] == "website")) == {"allow_auto_merge": True}
 
 
+@pytest.mark.parametrize("ids", [[], [123456]])
+def test_xo_is_onboarded_like_innernet_but_lands_on_green_checks(s, cfg, config_root, ids):
+    """Same rulesets as innernet apart from its check name, the approval count (0, suraj's choice c
+    of 2026-10-21) and executor membership, which is compared on its own."""
+    s["release_refs"]["bypass_integration_ids"] = ids
+    if not ids:
+        for r in s["repo"]:
+            r.pop("executor_branches", None)
+    plans = plans_by_name(s, cfg, config_root)
+    assert plans["xo"].checks == ("xo-presubmit",)
+
+    def split(name):
+        rs = copy.deepcopy(plans[name].rulesets)
+        bypass = {r["name"]: r.pop("bypass_actors") for r in rs}
+        for rule in rs[0]["rules"]:
+            if rule["type"] == "pull_request":
+                assert rule["parameters"]["require_code_owner_review"] is False, name
+                rule["parameters"]["required_approving_review_count"] = "N"
+        return json.dumps(rs).replace(f"{name}-presubmit", "X"), bypass
+    xo, xo_bypass = split("xo")
+    inn, _ = split("innernet")
+    assert xo == inn
+    app = [{"actor_id": i, "actor_type": "Integration", "bypass_mode": "always"} for i in ids]
+    assert xo_bypass == {n: (app if n.startswith("qq-release-refs-") else []) for n in xo_bypass}
+    assert settings.repo_settings(next(r for r in s["repo"] if r["name"] == "xo")) == {"allow_auto_merge": True}
+
+
 def test_code_owner_review_is_per_repo(s, cfg, config_root):
     plans = plans_by_name(s, cfg, config_root)
 
@@ -183,15 +210,16 @@ def test_code_owner_review_is_per_repo(s, cfg, config_root):
 
 
 def test_product_repos_need_one_approval_and_infra_repos_none(s, cfg, config_root):
+    """xo is the one product without: suraj chose (2026-10-21) that its PRs land on green checks."""
     plans = plans_by_name(s, cfg, config_root)
 
     def approvals(name):
         pr = next(r for r in plans[name].rulesets[0]["rules"] if r["type"] == "pull_request")
         return pr["parameters"]["required_approving_review_count"]
     products = {r["name"] for r in cfg["repos"]["repo"]}
-    assert products == {"xo-space", "innernet", "website"}
+    assert products == {"xo-space", "innernet", "website", "xo"}
     for name in plans:
-        assert approvals(name) == (1 if name in products else 0), name
+        assert approvals(name) == (1 if name in products - {"xo"} else 0), name
 
 
 @pytest.mark.parametrize("bad", [-1, 11, True, "1", 1.0])
@@ -329,12 +357,12 @@ def test_plan_prints_json(config_root, capsys):
     assert out["(backend)"] == "github" and out["gate"]["rulesets"][0]["name"] == "qq-main"
     assert {w["ruleset"] for w in out["(org)"]} == {"qq-drift", "qq-toolchains-promotion-gate",
                                                     "qq-xo-space-presubmit-pinned", "qq-innernet-presubmit-pinned",
-                                                    "qq-website-presubmit-pinned"}
+                                                    "qq-website-presubmit-pinned", "qq-xo-presubmit-pinned"}
 
 
 def test_org_rulesets_run_a_workflow_from_another_repos_main(s, cfg):
     org = {w["ruleset"]: w for w in settings.org_workflows(s, cfg)}
-    assert org["qq-drift"]["targets"] == ["innernet", "website", "xo-space"] and org["qq-drift"]["enabled"] is False
+    assert org["qq-drift"]["targets"] == ["innernet", "website", "xo", "xo-space"] and org["qq-drift"]["enabled"] is False
     tc = org["qq-toolchains-promotion-gate"]
     assert tc["targets"] == ["toolchains"] and tc["enabled"] is False   # Free plan (suraj, 2026-10-04)
     rs = github.org_ruleset(tc, ["toolchains"], repository_id=42)

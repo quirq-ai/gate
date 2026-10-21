@@ -35,7 +35,11 @@ bypass_integration_ids = [5199903]     # quirq-release-executor
 # and adding qq here, an explicit later change.
 # website too: release's lkgr moves every onboarded repo's lkgr ref (`qqrelease repos` at infra-config
 # 41a8cb0 lists xo-space, website, innernet), channels or not.
-executor_repos = ["release", "innernet", "xo-space", "website"]
+# xo too (infra-config 40d8f2b, #37): release's lkgr will list it once release repins past #37.
+# Install the App on xo before the apply that writes this: the apply creates xo's
+# qq-release-refs-* with the App as bypass, which GitHub refused with a 422 for xo-space, innernet
+# and website until the App was installed on them (2026-10-09). So before that repin too.
+executor_repos = ["release", "innernet", "xo-space", "website", "xo"]
 # A repo's executor_branches (state branches only the executor may write) get this ruleset.
 state_ruleset = "qq-release-state"
 
@@ -132,6 +136,16 @@ ref = "refs/heads/main"
 sha = "41a8cb0a19e4f12ecb0d6407ba1155cd42c498ad"   # infra-config main at #32 (#31 added website)
 targets = ["website"]
 
+[[org_workflows]]
+ruleset = "qq-xo-presubmit-pinned"
+enabled = false                      # see qq-xo-space-presubmit-pinned
+pinned = true
+repository = "infra-config"
+path = ".github/workflows/qq-required-xo-presubmit.yml"
+ref = "refs/heads/main"
+sha = "40d8f2b3c214c52e285a1528d9e5734a9328fa7c"   # infra-config main at #37 (added xo)
+targets = ["xo"]
+
 # --- product repos (required checks from infra-config) ---------------------------------------
 
 [[repo]]
@@ -166,6 +180,19 @@ kind = "product"
 required_approvals = 1               # product PRs need one approval (suraj, alpha decision 3, 2026-10-06)
 transitional_checks = []
 dependabot_branches = false           # no Dependabot roller for website yet (infra-config rollers.toml)
+
+[[repo]]
+name = "xo"
+allow_auto_merge = true               # agents queue PRs with auto-merge; it skips no check or review
+kind = "product"
+# suraj chose c (2026-10-21): no approval and no code-owner review; xo PRs land on xo-presubmit
+# alone. Every merge to main deploys xo.quirq.dev, and nothing on GitHub makes anyone read a PR
+# first, changes to xo's own CI included. suraj wants xo to be where the gardener gets really
+# tested, but that is separate work: gardener pins infra-config bf3ad29, which predates xo (#37), so
+# until it repins nothing reverts a bad landing on xo automatically.
+required_approvals = 0
+transitional_checks = []
+dependabot_branches = false           # no Dependabot roller for xo (infra-config rollers.toml)
 
 # --- infra repos (hand-written presubmits, read from each repo's workflows on 2026-10-04) --------
 

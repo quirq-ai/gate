@@ -1,0 +1,16 @@
+# Fixture: xo's manifest as merged in xo #58 (main 10937c6), comments trimmed.
+schema = "quirq-repo/1"
+
+[[targets]]
+name = "xo"
+kind = "python-package"
+srcs = ["src/**", "tests/**", "app.py", "pyproject.toml", "README.md", "LICENSE", "docs/test-xo-server.sh"]
+
+[qq]
+version = "0.1.0"
+
+[toolchains.python]
+version = "3.14.8"
+
+[toolchains.python.platforms]
+linux-x86_64 = {source = "oci://ghcr.io/quirq-ai/toolchains/python@sha256:32c0b762db5ec5453e63cf057ab4fa072751a19f1af70f08c07ac4f5fb70a716", digest = "sha256:230c6677ccbaba9043c810b9c4a6096ed354c8a981bb62ea90bd059b12d1b03c"}

@@ -110,10 +110,14 @@ is no less safe.
 - `qq-release-refs-branches` and `qq-release-refs-tags`: `lkgr` and `channels/**/*` cannot be created,
   moved or deleted except by the release executor, a dedicated GitHub App (quirq-release-executor).
   Its App ID goes in `[release_refs] bypass_integration_ids`, and it bypasses these rulesets only in
-  `executor_repos` (release, innernet, xo-space, website), the repos the App is installed on. Every other
+  `executor_repos` (release, innernet, xo-space, website, xo), the repos the App is installed on. Every other
   repo keeps no bypass: GitHub may refuse an Integration bypass for an App that is not installed,
   and the dry run (GET only) could not show that before the write. The App ID is 5199903 (created
-  2026-10-05).
+  2026-10-05). Before the first apply that includes xo, add xo to the App's repositories
+  (github.com/organizations/quirq-ai/settings/installations, Configure next to
+  quirq-release-executor, keeping "Only select repositories"): without it GitHub refuses xo's
+  `qq-release-refs-branches` with a 422, as it did for xo-space, innernet and website on 2026-10-09,
+  and the run stops with `FAILED` after writing xo's `qq-main` only.
 - `qq-reserved-tags`, in every repo: nobody may create, move or delete a tag named `main` or like
   any repo's state branch (`ledger`, `perf-data`, `release-state`, `results`, `tree-status`). A tag
   named `main` satisfies a workflow's `github.ref_name == 'main'` test, and a tag wins over a branch
@@ -195,11 +199,11 @@ The rest of this section describes them for a paid plan.
 repo on every PR and queue entry, so a PR cannot satisfy them with its own same-named job. Turning
 one on or off is a reviewed change to that file, after which the same command applies it.
 
-- `qq-xo-space-presubmit-pinned`, `qq-innernet-presubmit-pinned` and `qq-website-presubmit-pinned` (off): each product repo's presubmit,
+- `qq-xo-space-presubmit-pinned`, `qq-innernet-presubmit-pinned`, `qq-website-presubmit-pinned` and `qq-xo-presubmit-pinned` (off): each product repo's presubmit,
   run from infra-config's `.github/workflows/qq-required-<repo>-presubmit.yml` at a pinned commit
   (`sha`), so neither a PR nor a dependency roll can change the workflow that judges it. rollers
   auto-lands only into a repo that has one. xo-space and innernet are pinned at infra-config `eaa2c88` (#19), whose files
-  dropped `cancel-in-progress`, and website at `41a8cb0` (#32; #31 added its file); all three pass the checks below on a fresh clone. The pin fixes the workflow file, not
+  dropped `cancel-in-progress`, website at `41a8cb0` (#32; #31 added its file), and xo at `40d8f2b` (#37 added its file); all four pass the checks below on a fresh clone. The pin fixes the workflow file, not
   the code it runs: owner review of tests and scripts is V0-GAT-03 (waits on ORG-02 owners).
 - `qq-toolchains-promotion-gate` (off): toolchains' `promotion-gate.yml`, pinned at `eb71c8e`
   (toolchains #13: no `cancel-in-progress`, a 35-minute timeout). The pin fixes the workflow file;
@@ -231,8 +235,8 @@ App tokens); PRs already open get it on their next push. The org's plan does not
 
 - A repo's required checks match a job name from GitHub Actions, so a PR that edits its own
   workflows could make a same-named job pass. What stops that is review of `.github/`: toolchains
-  requires suraj's code-owner review there (toolchains #14); xo-space, innernet and website do not
-  yet, and release does not by suraj's choice (fully autonomous, 2026-10-05), though only workflows
+  requires suraj's code-owner review there (toolchains #14); xo-space, innernet, website and xo do not
+  yet (xo by suraj's choice c, 2026-10-21), and release does not by suraj's choice (fully autonomous, 2026-10-05), though only workflows
   on its main can use the release executor's key.
 - toolchains' promotion gate is a repo required check (`promotion-gate`, on `pull_request` and
   `merge_group` since toolchains #15). A PR's own workflows can fake it only by editing `.github/`,
@@ -269,7 +273,8 @@ required check or review. It is on in every repo but xo-space, where suraj lands
   and would be accepted silently, so a later change must copy the App ID from the App's General page.
 - Approvals: per repo. `[main] required_approvals = 0` is the default, and the 13 infra repos keep
   it: their PRs land on green checks alone. Product repos (xo-space, innernet, website) set
-  `required_approvals = 1` (suraj, alpha decision 3, 2026-10-06). GitHub never counts the PR
+  `required_approvals = 1` (suraj, alpha decision 3, 2026-10-06); xo keeps 0 (suraj's choice c,
+  2026-10-21), so its PRs land on `xo-presubmit` alone and every landing deploys xo.quirq.dev. GitHub never counts the PR
   author's own approval, and a push after an approval dismisses it. So an agent PR, opened by the
   agent account, needs suraj's approval after the agent's last push. A product PR opened under
   suraj's own account needs another account with write access, which on innernet and website may

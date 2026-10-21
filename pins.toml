@@ -3,7 +3,7 @@
 
 [infra-config]
 source = "https://github.com/quirq-ai/infra-config"
-commit = "b344eaf848b43f6096b0247c9b21ca6ed10b08a8"   # #35 names qq (depot renamed 2026-10-09); brings in #33, #34
+commit = "40d8f2b3c214c52e285a1528d9e5734a9328fa7c"   # #37 adds xo (python-package kind, xo builders)
 
 [sync]
 source = "https://github.com/quirq-ai/sync"
