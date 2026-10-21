@@ -15,7 +15,7 @@ from qqgate.cli import main
 from qqgate.errors import GateError
 
 ROOT = Path(__file__).resolve().parent.parent
-PRODUCTS = ("xo-space", "website", "innernet")
+PRODUCTS = ("xo-space", "website", "xo", "innernet")
 QQ_CONFIG = ('[[infra_repo]]\nname = "qq-config"\nsource = "github.com/acme/qq-config"\n'
              'visibility = "public"\nwave = 1\nowns = "acme\'s qq config."\nchromium = "infra/config"\n'
              'owners = []\n\n')
@@ -376,7 +376,7 @@ def test_user_apply_plans_only_its_own_rulesets(user_apply, monkeypatch, capsys)
     lines = sorted(line for line in out.splitlines() if line.startswith("plan "))
     assert lines == sorted(f"plan     acme/{r}: create ruleset {n}" for r in ("qq-config",) + PRODUCTS
                            for n in ("qq-main", "qq-reserved-tags"))
-    assert "done     dry run: 8 write(s) planned, 0 repo(s) not ready" in out
+    assert f"done     dry run: {2 * (1 + len(PRODUCTS))} write(s) planned, 0 repo(s) not ready" in out
 
 
 def test_user_apply_refuses_a_settings_file_changed_during_the_plan(user_apply, monkeypatch, capsys):

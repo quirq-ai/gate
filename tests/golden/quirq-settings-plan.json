@@ -517,6 +517,177 @@
       }
     ]
   },
+  "xo": {
+    "kind": "product",
+    "required": [
+      "xo-presubmit"
+    ],
+    "rulesets": [
+      {
+        "name": "qq-main",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          },
+          {
+            "type": "pull_request",
+            "parameters": {
+              "required_approving_review_count": 0,
+              "dismiss_stale_reviews_on_push": true,
+              "require_code_owner_review": false,
+              "require_last_push_approval": false,
+              "required_review_thread_resolution": false,
+              "allowed_merge_methods": [
+                "squash"
+              ]
+            }
+          },
+          {
+            "type": "merge_queue",
+            "parameters": {
+              "check_response_timeout_minutes": 40,
+              "grouping_strategy": "ALLGREEN",
+              "max_entries_to_build": 5,
+              "max_entries_to_merge": 5,
+              "merge_method": "SQUASH",
+              "min_entries_to_merge": 1,
+              "min_entries_to_merge_wait_minutes": 5
+            }
+          },
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "xo-presubmit",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-branches",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [
+          {
+            "actor_id": 5199903,
+            "actor_type": "Integration",
+            "bypass_mode": "always"
+          }
+        ],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/heads/lkgr",
+              "refs/heads/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-release-refs-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [
+          {
+            "actor_id": 5199903,
+            "actor_type": "Integration",
+            "bypass_mode": "always"
+          }
+        ],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/lkgr",
+              "refs/tags/channels/**/*"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      },
+      {
+        "name": "qq-reserved-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "refs/tags/main",
+              "refs/tags/ledger",
+              "refs/tags/perf-data",
+              "refs/tags/release-state",
+              "refs/tags/results",
+              "refs/tags/tree-status"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "creation"
+          },
+          {
+            "type": "update"
+          },
+          {
+            "type": "deletion"
+          },
+          {
+            "type": "non_fast_forward"
+          }
+        ]
+      }
+    ]
+  },
   "infra-config": {
     "kind": "infra",
     "required": [
@@ -2777,6 +2948,7 @@
       "targets": [
         "innernet",
         "website",
+        "xo",
         "xo-space"
       ]
     },
@@ -2825,6 +2997,18 @@
       "sha": "41a8cb0a19e4f12ecb0d6407ba1155cd42c498ad",
       "targets": [
         "website"
+      ]
+    },
+    {
+      "ruleset": "qq-xo-presubmit-pinned",
+      "enabled": false,
+      "pinned": true,
+      "repository": "infra-config",
+      "path": ".github/workflows/qq-required-xo-presubmit.yml",
+      "ref": "refs/heads/main",
+      "sha": "40d8f2b3c214c52e285a1528d9e5734a9328fa7c",
+      "targets": [
+        "xo"
       ]
     }
   ]

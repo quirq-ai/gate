@@ -48,7 +48,7 @@ qqgate rule     --config ../infra-config --repo xo-space          # ruleset rule
 qqgate verdict  --config ../infra-config --repo xo-space --sha <commit>   # or --observed checks.json
 ```
 
-Today: `xo-space` requires `xo-space-presubmit`, `innernet` requires `innernet-presubmit`, `website` requires `website-presubmit`.
+Today: `xo-space` requires `xo-space-presubmit`, `innernet` requires `innernet-presubmit`, `website` requires `website-presubmit`, `xo` requires `xo-presubmit`.
 xo-space's hand-written `tests` check is not required: the generated presubmit runs everything it
 ran, and V0-ONB-01 deleted `tests.yml` (xo-space #217). `transitional_checks` in `settings/github.toml` can still add
 a hand-written check after the generated ones.
@@ -63,7 +63,7 @@ recorded yet.
 ## Merge queue and rulesets (V0-ORG-03)
 
 `settings/github.toml` is the merge queue and rulesets as code, for all thirteen infra repos and
-the three product repos (xo-space, innernet, website). `qqgate settings plan` prints them, `verify` says which repos are safe to switch
+the four product repos (xo-space, innernet, website, xo). `qqgate settings plan` prints them, `verify` says which repos are safe to switch
 on today (every required check must run on `pull_request` and `merge_group` there), and `apply`
 creates or updates them by name for ready repos only. An org admin runs one command,
 `scripts/apply.sh`; see [docs/apply-settings.md](docs/apply-settings.md).

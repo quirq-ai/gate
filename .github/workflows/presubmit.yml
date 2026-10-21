@@ -32,13 +32,13 @@ jobs:
       - run: python -m pytest -q -p no:cacheprovider
       - name: required checks for the product repos, computed from config and manifests (V0-GAT-01)
         run: |
-          for repo in xo-space innernet website; do
+          for repo in xo-space innernet website xo; do
             qqgate required --config .qq/infra-config --repo "$repo" --manifest "tests/fixtures/$repo.repo.toml"
             qqgate rule --config .qq/infra-config --repo "$repo"
           done
       - name: a red PR is refused in every product repo (V0-GAT-01 done-when, offline half)
         run: |
-          for repo in xo-space innernet website; do
+          for repo in xo-space innernet website xo; do
             rc=0; qqgate verdict --config .qq/infra-config --repo "$repo" --observed tests/fixtures/red.json --json > "$RUNNER_TEMP/v.json" || rc=$?
             cat "$RUNNER_TEMP/v.json"
             [ "$rc" -eq 1 ] && python -c "import json,sys; sys.exit(json.load(open(sys.argv[1]))['verdict'] != 'refused')" "$RUNNER_TEMP/v.json" \
