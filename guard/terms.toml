@@ -39,6 +39,18 @@ why = "QQ_PYTHON names the interpreter that runs qq itself."
 
 [[allow]]
 repo = "qq"
+path = "bin/qq.cmd"
+term = "python"
+why = "QQ_PYTHON names the interpreter that runs qq itself on Windows (default py -3.14)."
+
+[[allow]]
+repo = "qq"
+path = "bin/qq.cmd"
+term = "python3"
+why = "The Windows launcher falls back to python, then python3, on PATH to find the interpreter that runs qq itself."
+
+[[allow]]
+repo = "qq"
 path = "src/qqdepot/bootstrap.py"
 term = "python"
 why = "Bootstraps qq's own venv (bin/python -m pip install qq)."
