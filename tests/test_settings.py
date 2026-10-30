@@ -31,6 +31,28 @@ def test_every_infra_and_product_repo_is_covered(s, cfg, config_root):
     assert {r["name"] for r in cfg["org"]["infra_repo"]} | {r["name"] for r in cfg["repos"]["repo"]} == set(plans)
 
 
+def test_a_product_dropped_from_settings_and_infra_config_is_left_alone(s, cfg, config_root):
+    """Removing a repo from qq is dropping its [[repo]] here, at an infra-config pin that no longer lists
+    it. The plan then has nothing for it, so apply neither reads nor writes it: its rulesets stay live
+    on GitHub until an admin deletes them (docs/apply-settings.md, "Taking a repo out of qq")."""
+    s["repo"] = [r for r in s["repo"] if r["name"] != "website"]
+    s["release_refs"]["executor_repos"].remove("website")
+    cfg["repos"]["repo"] = [r for r in cfg["repos"]["repo"] if r["name"] != "website"]
+    plans = plans_by_name(s, cfg, config_root)
+    assert "website" not in plans and {"xo-space", "innernet"} <= set(plans)
+
+
+def test_settings_and_infra_config_must_agree_on_the_products(s, cfg, config_root):
+    """Onboarding or removing a product changes settings/github.toml and the infra-config pin together;
+    either one alone is refused."""
+    without = [r for r in s["repo"] if r["name"] != "website"]
+    with pytest.raises(GateError, match=r"missing \['website'\]"):
+        settings.build({**s, "repo": without}, cfg, config_root)
+    cfg["repos"]["repo"] = [r for r in cfg["repos"]["repo"] if r["name"] != "website"]
+    with pytest.raises(GateError, match=r"unknown \['website'\]"):
+        settings.build(s, cfg, config_root)
+
+
 def test_product_checks_come_from_the_gate(s, cfg, config_root):
     plans = plans_by_name(s, cfg, config_root)
     assert plans["xo-space"].checks == ("xo-space-presubmit",)
@@ -188,10 +210,17 @@ def test_product_repos_need_one_approval_and_infra_repos_none(s, cfg, config_roo
     def approvals(name):
         pr = next(r for r in plans[name].rulesets[0]["rules"] if r["type"] == "pull_request")
         return pr["parameters"]["required_approving_review_count"]
-    products = {r["name"] for r in cfg["repos"]["repo"]}
-    assert products == {"xo-space", "innernet", "website"}
+    # The repos gate lists as products, each also a product in infra-config. Read from the settings, so
+    # onboarding one is an edit to settings/github.toml alone. Each product states its approvals
+    # (1 is alpha decision 3; a product may choose otherwise), and infra repos get [main]'s 0.
+    products = {r["name"]: r for r in s["repo"] if r["kind"] == "product"}
+    assert products and set(products) <= {r["name"] for r in cfg["repos"]["repo"]}
+    assert s["main"]["required_approvals"] == 0
+    for name, r in products.items():
+        assert "required_approvals" in r, f"{name}: a product states its required_approvals"
     for name in plans:
-        assert approvals(name) == (1 if name in products else 0), name
+        want = products[name]["required_approvals"] if name in products else 0
+        assert approvals(name) == want, name
 
 
 @pytest.mark.parametrize("bad", [-1, 11, True, "1", 1.0])
@@ -1042,7 +1071,8 @@ def test_expect_plan_must_be_a_saved_plan(apply_env, config_root, tmp_path, caps
 
 def test_allow_auto_merge_is_set_per_repo_and_type_checked(s):
     want = {r["name"]: settings.repo_settings(r).get("allow_auto_merge") for r in s["repo"]}
-    assert want.pop("xo-space") is False and set(want.values()) == {True}   # suraj, 2026-10-04
+    assert want == {r["name"]: r["allow_auto_merge"] for r in s["repo"]}
+    assert want["xo-space"] is False   # suraj, 2026-10-04: xo-space PRs land by his own "Merge when ready"
     with pytest.raises(GateError, match="allow_auto_merge must be true or false"):
         settings.repo_settings({"name": "x", "allow_auto_merge": "yes"})
 
