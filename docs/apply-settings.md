@@ -95,6 +95,36 @@ is no less safe.
   Rulesets are created or updated by name, never deleted.
 - It never touches rulesets or protection it did not create. A ruleset dropped from
   `settings/github.toml` stays live until an admin deletes it in Settings > Rules.
+- It reads and writes only the repos `settings/github.toml` lists. A repo dropped from it keeps every
+  ruleset an earlier run gave it (see [Taking a repo out of qq](#taking-a-repo-out-of-qq)).
+
+## Adding a product repo
+
+A product is gated once infra-config lists it and this repo's settings do. One gate pull request:
+
+1. `settings/github.toml`: one `[[repo]]` block with `kind = "product"`, its `required_approvals`
+   (stated per product; alpha decision 3 is 1), `allow_auto_merge`, `transitional_checks = []` and,
+   if wanted, `code_owner_review`. Its required checks come from infra-config's blocking builders.
+2. `pins.toml`: `[infra-config] commit` moved to an infra-config commit whose `config/repos.toml` lists
+   the repo and whose `pipelines.toml` has its blocking builder. `settings plan` refuses settings and
+   an infra-config that disagree on the products.
+3. `tests/golden/quirq-settings-plan.json`, regenerated:
+   `qqgate settings plan --config <infra-config at the new pin> > tests/golden/quirq-settings-plan.json`.
+
+Nothing else here names the product repos: the presubmit reads them from `settings/github.toml`, and
+checks a repo's manifest too when `tests/fixtures/<repo>.repo.toml` exists. Once it merges, an admin
+runs the command above, and the repo gets its rulesets once it is ready (`settings verify`).
+
+## Taking a repo out of qq
+
+Drop its `[[repo]]` block (and its name from `[release_refs] executor_repos` and any
+`[[org_workflows]]` targets), move the infra-config pin to a commit that no longer lists it, and
+regenerate the golden plan, in one pull request. Apply then leaves the repo alone: it neither reads
+nor deletes what an earlier run wrote, so `qq-main`, `qq-reserved-tags` and any state or release
+ruleset stay live and keep gating its pull requests. To lift them, an admin deletes them in the
+repo's Settings > Rules, or runs `gh api --method DELETE repos/quirq-ai/<repo>/rulesets/<id>` for
+each (`gh api repos/quirq-ai/<repo>/rulesets` lists the ids). That is deliberate: a deletion is
+never a side effect of an edit to this file.
 
 ## What each ready repo gets
 
